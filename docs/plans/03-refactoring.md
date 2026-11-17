@@ -126,6 +126,13 @@
 | **R04.2 (Media Alerts)** | `COMPLETED` | `e9a30ed` | Extracted alert lifecycle & SQLite querying into `media/alerts.py` (154 lines). |
 | **R04.3 (Media Persistence)** | `COMPLETED` | `f2a1704` | Extracted SQLite persistence & history into `media/persistence.py` (140 lines); `collector.py` reduced `856 -> 306` lines with compatibility re-exports. |
 | **R05 (Shared Scheduler)** | `COMPLETED` | `c0618fe` | Extracted `HardenedPeriodicScheduler` into `homeagentp_core/scheduler.py`; migrated `NasCollectionScheduler` and `MediaCollectionScheduler`; added `test_r05_media_scheduler_hardened_worker_timeout_shutdown_and_restart`. |
-| **R06** | `PENDING` | — | Split `App.tsx` (1,874 lines) starting with Media Dashboard. |
-| **R07** | `PENDING` | — | Split `test_media_downloads.py` by service/concern. |
+| **Gate C Step 1 (HTTP Transport Guard)** | `COMPLETED` | `187a807` | `_build_pinned_transport()` in `media/http_client.py` fails closed with `MediaSecurityError("ssrf_pinning_unavailable")` on incompatible `httpcore.ConnectionPool` internals or failed backend verification; pinned `httpx>=0.27.0,<0.29.0`; added `test_r03_pinned_transport_fails_closed_on_incompatible_internals`. |
+| **R06.1 (API Types & Formatters)** | `COMPLETED` | `b2fe520` | Split `apps/web/src/api/types.ts` by domain (`common`, `tasks`, `nas`, `media`, `index`) with compatibility re-export; extracted `src/utils/format.ts`. |
+| **R06.2 (Media Cards)** | `COMPLETED` | `f7fa756` | Extracted `MediaOverviewCards`, `MediaFallbackCards`, `JellyfinCard`, `QBittorrentCard`, `ArrSuiteCards`, and `AuxMediaCards` into `src/components/media/`. |
+| **R06.3 (Media Dashboard & Alerts)** | `COMPLETED` | `a215e7e` | Extracted `MediaAlertsHistory.tsx` and `MediaDashboard.tsx`; wired into `App.tsx`. |
+| **R06.4 (Auth & Data Hooks)** | `COMPLETED` | `d0f5e4c` | Extracted `useAuthSession.ts` and `useDashboardData.ts` into `src/hooks/`. |
+| **R06.5 (Page Sections)** | `COMPLETED` | `3f478d0` | Extracted `OverviewSection`, `HomeAutomationSection`, `NasGuardianSection`, `TasksSection`, `ScriptsSection`, `ReportsSection`, and `SettingsSection` into `src/components/sections/`; `App.tsx` reduced `1,875 -> 286` lines. |
+| **R06.6 (Media UI Tests)** | `COMPLETED` | `391c123` | Added `src/__tests__/MediaDashboard.test.tsx` covering card rendering, poll snapshot button, busy state, fallback cards, and "Show resolved" toggle (`4` Vitest tests PASS). |
+| **R07 (Test Decomposition)** | `COMPLETED` | `d20074f` | Split `tests/core/test_media_downloads.py` (`1,352` lines) into `tests/core/media/` (`conftest.py` + 8 focused test modules); `47` pytest, `ruff`, `mypy` PASS. |
+
 
