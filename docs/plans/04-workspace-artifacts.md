@@ -1,6 +1,6 @@
 # Phase 04 — Workspace, Task Briefs, Artifacts & Git Handoff
 
-**Status:** PLANNING / NOT IMPLEMENTED  
+**Status:** GATE A + GATE B IMPLEMENTED (Final Integration Fixes Applied; Pending Human Review)  
 **Branch:** `feature/phase-04-workspace-artifacts` (based on merged Phase 03 `main`, `6f13fee7`)  
 **Architecture:** HomeAgentP B+ (Antigravity-first, Dashboard-light)
 
@@ -65,4 +65,16 @@ Build compact Task Brief / Artifacts / Git Handoff UI using feature components a
 - **Gate B: F04 + F05** — Git links/UI/integration; tests and isolated staging.
 - **Final review** — security/API/rollback and merge-readiness checks, human approval.
 
-**Current decision:** Phase 04 planning branch initialized. Only this plan is created; all implementation, merge and NAS deployment remain pending.
+**Current decision:** Gate 0, Gate A (`P04-F02`, `P04-F03`), Gate B (`P04-F04`, `P04-F05`), and final integration fixes are implemented and verified. Draft PR #4 remains open for human review; merge and live NAS deployment remain prohibited without explicit approval.
+
+## 7. Verification & Final Integration Status
+
+- **Task Brief Export Contract (`419f7cc`)**: Fixed `workspaceClient.exportTaskBrief(taskId, version)` to call `GET /api/v1/workspace/tasks/{task_id}/briefs/{version}/export` with explicit version; added real-client `fetch`-mocked contract test (`workspaceClient.contract.test.ts`) and backend route contract test (`test_task_brief_export_route_contract_and_missing_version`).
+- **Artifact Pagination & Revision UX (`a8199ea`)**: Added `Previous` / `Next` pagination controls (`limit=20`, filter-reset `offset=0`, disabled boundary states), stale-response sequence guard in `useWorkspaceData`, `"New Revision"` prefill (`slug`, `expected_latest_revision`, new unique `version`), and `409` conflict refresh/retry handling.
+- **Isolated Docker Staging Smoke Test (`62692dc`)**: Added authenticated Phase 04 Workspace API smoke test (Task Brief create/export, Artifact register/list, Git Provenance create) to `.github/workflows/ci.yml` (`Docker staging (isolated, no NAS)`).
+- **Local Verification**:
+  - Backend (`apps/core`): `ruff check` PASS, `mypy src` PASS (59 files), `pytest -v` PASS (59/59 tests).
+  - Frontend (`apps/web`): `tsc --noEmit` PASS, `vitest run` PASS (6 files, 17 tests), `vite build` PASS.
+  - Local Docker Compose: `NOT_TESTED` (Docker daemon unavailable in this VM; executed via GitHub Actions `Docker staging (isolated, no NAS)`).
+  - Live NAS / Production: `NOT_TESTED`.
+
