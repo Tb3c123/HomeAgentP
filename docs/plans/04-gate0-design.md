@@ -2,7 +2,7 @@
 
 **Branch:** `feature/phase-04-workspace-artifacts` (based on `main` at `6f13fee7`)  
 **Draft PR:** [#4 — Phase 04 Workspace, Task Briefs, Artifacts & Git Handoff](https://github.com/Tb3c123/HomeAgentP/pull/4)  
-**Status:** `GATE 0 DESIGN FINALIZED — READY FOR GATE A (P04-F02 + P04-F03)`
+**Status:** `GATE A COMPLETE (P04-F02 + P04-F03) — READY FOR GATE B (P04-F04 + P04-F05)`
 
 ---
 
