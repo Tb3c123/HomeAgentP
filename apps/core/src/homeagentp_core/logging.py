@@ -9,17 +9,18 @@ from datetime import UTC, datetime
 from typing import Any
 
 SENSITIVE_KEY_PATTERN = re.compile(
-    r"(password|passwd|secret|token|api[-_]?key|authorization|cookie|session_id|csrf)",
+    r"(password|passwd|secret|token|api[-_]?key|emby[-_]?token|authorization|cookie|session_id|sid|csrf)",
     re.IGNORECASE,
 )
 
 SENSITIVE_VALUE_PATTERNS = [
     re.compile(
-        r"((?:password|passwd|secret|token|api_key|apikey|cookie|session)\s*[=:]\s*)([^\s,;\"'&]+)",
+        r"((?:password|passwd|secret|token|api_key|apikey|x-api-key|x-emby-token|cookie|session|sid)\s*[=:]\s*\"?)([^\s,;\"'&]+)",
         re.IGNORECASE,
     ),
     re.compile(r"(Bearer\s+)([A-Za-z0-9._~+/=-]+)", re.IGNORECASE),
     re.compile(r"(homeagentp_session=)([^\s;\"']+)", re.IGNORECASE),
+    re.compile(r"(SID=)([^\s;\"']+)", re.IGNORECASE),
 ]
 
 

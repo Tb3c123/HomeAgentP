@@ -37,6 +37,21 @@ DEFAULT_EXPECTED_SERVICES = [
     "portainer",
 ]
 
+DEFAULT_MEDIA_ALLOWED_HOSTS = [
+    "127.0.0.1",
+    "localhost",
+    "::1",
+    "jellyfin",
+    "qbittorrent",
+    "sonarr",
+    "radarr",
+    "bazarr",
+    "prowlarr",
+    "seerr",
+    "jellyseerr",
+    "overseerr",
+]
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -94,14 +109,45 @@ class Settings(BaseSettings):
     nas_container_mem_warn_percent: float = Field(default=85.0, ge=1.0, le=100.0)
     nas_container_mem_critical_percent: float = Field(default=95.0, ge=1.0, le=100.0)
 
-    # Phase 03-05 integration flags (placeholders in Phase 02)
+    # Phase 03 — Media & Downloads Monitoring Hub configuration
+    media_adapter_enabled: bool = False
+    media_scheduler_enabled: bool = False
+    media_collection_interval_seconds: int = Field(default=90, ge=15, le=3600)
+    media_collection_timeout_seconds: float = Field(default=15.0, ge=1.0, le=120.0)
+    media_http_timeout_seconds: float = Field(default=5.0, ge=0.5, le=30.0)
+    media_max_response_bytes: int = Field(default=2_097_152, ge=4096, le=16_777_216)
+    media_min_persist_interval_seconds: int = Field(default=30, ge=0, le=3600)
+    media_history_retention_limit: int = Field(default=120, ge=5, le=2000)
+    media_snapshot_stale_seconds: int = Field(default=300, ge=30, le=86400)
+    media_failure_threshold: int = Field(default=3, ge=1, le=20)
+    media_allowed_hosts: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_MEDIA_ALLOWED_HOSTS)
+    )
+
     jellyfin_url: str = ""
-    sonarr_url: str = ""
-    radarr_url: str = ""
-    bazarr_url: str = ""
-    prowlarr_url: str = ""
-    seerr_url: str = ""
+    jellyfin_api_key: str = ""
+
     qbittorrent_url: str = ""
+    qbittorrent_username: str = ""
+    qbittorrent_password: str = ""
+    qbittorrent_stalled_threshold_seconds: int = Field(default=1800, ge=60, le=604800)
+
+    sonarr_url: str = ""
+    sonarr_api_key: str = ""
+
+    radarr_url: str = ""
+    radarr_api_key: str = ""
+
+    bazarr_url: str = ""
+    bazarr_api_key: str = ""
+
+    prowlarr_url: str = ""
+    prowlarr_api_key: str = ""
+
+    seerr_url: str = ""
+    seerr_api_key: str = ""
+
+    # Phase 05 integration flags (placeholders)
     home_assistant_url: str = ""
     telegram_bot_token: str = ""
 
@@ -166,6 +212,15 @@ class Settings(BaseSettings):
             "seed_examples": self.seed_examples,
             "secret_key": "[REDACTED]",
             "admin_password": "[REDACTED]",
+            "jellyfin_api_key": "[REDACTED]" if self.jellyfin_api_key else "not_configured",
+            "qbittorrent_password": (
+                "[REDACTED]" if self.qbittorrent_password else "not_configured"
+            ),
+            "sonarr_api_key": "[REDACTED]" if self.sonarr_api_key else "not_configured",
+            "radarr_api_key": "[REDACTED]" if self.radarr_api_key else "not_configured",
+            "bazarr_api_key": "[REDACTED]" if self.bazarr_api_key else "not_configured",
+            "prowlarr_api_key": "[REDACTED]" if self.prowlarr_api_key else "not_configured",
+            "seerr_api_key": "[REDACTED]" if self.seerr_api_key else "not_configured",
             "telegram_bot_token": "[REDACTED]" if self.telegram_bot_token else "not_configured",
             "architecture_mode": "B+ (Antigravity-first, Dashboard-light)",
             "script_execution_enabled": False,
@@ -201,15 +256,83 @@ class Settings(BaseSettings):
                     "container_mem_critical_percent": self.nas_container_mem_critical_percent,
                 },
             },
+            "media_hub": {
+                "adapter_enabled": self.media_adapter_enabled,
+                "scheduler_enabled": self.media_scheduler_enabled,
+                "collection_interval_seconds": self.media_collection_interval_seconds,
+                "collection_timeout_seconds": self.media_collection_timeout_seconds,
+                "http_timeout_seconds": self.media_http_timeout_seconds,
+                "max_response_bytes": self.media_max_response_bytes,
+                "min_persist_interval_seconds": self.media_min_persist_interval_seconds,
+                "history_retention_limit": self.media_history_retention_limit,
+                "snapshot_stale_seconds": self.media_snapshot_stale_seconds,
+                "failure_threshold": self.media_failure_threshold,
+                "allowed_hosts": self.media_allowed_hosts,
+                "qbittorrent_stalled_threshold_seconds": (
+                    self.qbittorrent_stalled_threshold_seconds
+                ),
+            },
             "integrations": {
                 "nas_guardian": "configured" if self.nas_adapter_enabled else "unavailable",
-                "jellyfin": "configured" if bool(self.jellyfin_url) else "unavailable",
-                "sonarr": "configured" if bool(self.sonarr_url) else "unavailable",
-                "radarr": "configured" if bool(self.radarr_url) else "unavailable",
-                "bazarr": "configured" if bool(self.bazarr_url) else "unavailable",
-                "prowlarr": "configured" if bool(self.prowlarr_url) else "unavailable",
-                "seerr": "configured" if bool(self.seerr_url) else "unavailable",
-                "qbittorrent": "configured" if bool(self.qbittorrent_url) else "unavailable",
+                "jellyfin": (
+                    "configured"
+                    if bool(
+                        self.media_adapter_enabled
+                        and self.jellyfin_url
+                        and self.jellyfin_api_key
+                    )
+                    else "unavailable"
+                ),
+                "sonarr": (
+                    "configured"
+                    if bool(
+                        self.media_adapter_enabled
+                        and self.sonarr_url
+                        and self.sonarr_api_key
+                    )
+                    else "unavailable"
+                ),
+                "radarr": (
+                    "configured"
+                    if bool(
+                        self.media_adapter_enabled
+                        and self.radarr_url
+                        and self.radarr_api_key
+                    )
+                    else "unavailable"
+                ),
+                "bazarr": (
+                    "configured"
+                    if bool(
+                        self.media_adapter_enabled
+                        and self.bazarr_url
+                        and self.bazarr_api_key
+                    )
+                    else "unavailable"
+                ),
+                "prowlarr": (
+                    "configured"
+                    if bool(
+                        self.media_adapter_enabled
+                        and self.prowlarr_url
+                        and self.prowlarr_api_key
+                    )
+                    else "unavailable"
+                ),
+                "seerr": (
+                    "configured"
+                    if bool(
+                        self.media_adapter_enabled
+                        and self.seerr_url
+                        and self.seerr_api_key
+                    )
+                    else "unavailable"
+                ),
+                "qbittorrent": (
+                    "configured"
+                    if bool(self.media_adapter_enabled and self.qbittorrent_url)
+                    else "unavailable"
+                ),
                 "home_assistant": "configured" if bool(self.home_assistant_url) else "unavailable",
                 "telegram": "configured" if bool(self.telegram_bot_token) else "unavailable",
             },
