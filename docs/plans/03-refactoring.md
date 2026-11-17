@@ -111,11 +111,13 @@
 
 | Step | Status | Commit SHA | Notes |
 |---|---|---|---|
-| **R01** | `COMPLETED` | *(this commit)* | Baseline checks all PASS (`37` pytest, `ruff`, `mypy`, `tsc`, `2` vitest, `vite build`). Architecture map & `origin/main` sync plan documented. |
-| **Sync `origin/main`** | `PENDING` | — | Merge `origin/main` (`a2e7ef6`) cleanly before R05 (or right after R01 review). |
-| **R02** | `PENDING` | — | Split `adapters.py` (1,393 lines) one connector per commit. |
+| **R01** | `COMPLETED` | `1d53d18` | Baseline checks all PASS (`37` pytest, `ruff`, `mypy`, `tsc`, `2` vitest, `vite build`). Architecture map & `origin/main` sync plan documented. |
+| **Sync `origin/main`** | `COMPLETED` | `1cbccf0` | Merged `origin/main` (`a2e7ef6`) cleanly (`ort`, zero conflicts). Preserved Phase 02 NAS Scheduler (`b96d1b2`, `ecd74e0`) & Host Producer. Updated PR #3 base to `main`. `38` pytest + frontend PASS. |
+| **R02.1 (Jellyfin)** | `COMPLETED` | *(this commit)* | Extracted `JellyfinAdapter` into `modules/media/connectors/jellyfin.py` (275 lines); `adapters.py` reduced `1393 -> 1151` lines with backward-compatible re-export. `39` pytest, `ruff`, `mypy` PASS. |
+| **R02.2–R02.7** | `PENDING` | — | Extract remaining 6 connectors + `arr_common.py` + registry one per commit. |
 | **R03** | `PENDING` | — | Split `base.py` (474 lines) + security audit. |
 | **R04** | `PENDING` | — | Split `collector.py` (855 lines) into state, alerts, persistence, orchestration. |
 | **R05** | `PENDING` | — | Shared hardened scheduler + regression tests. |
 | **R06** | `PENDING` | — | Split `App.tsx` (1,874 lines) starting with Media Dashboard. |
-| **R07** | `PENDING` | — | Split `test_media_downloads.py` (936 lines) by service/concern. |
+| **R07** | `PENDING` | — | Split `test_media_downloads.py` by service/concern. |
+

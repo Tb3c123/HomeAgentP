@@ -934,3 +934,36 @@ def test_unified_media_api_endpoints_integration(tmp_path: Path) -> None:
         assert top_overview.status_code == 200
         assert top_overview.json()["domains"]["media"]["status"] == "degraded"
         assert top_overview.json()["domains"]["downloads"]["status"] == "critical"
+
+
+def test_jellyfin_connector_backward_compatible_import_and_metrics(tmp_path: Path) -> None:
+    """R02.1: Verify JellyfinAdapter extraction preserves imports and exact metrics JSON."""
+    from homeagentp_core.modules.media import adapters as legacy_adapters
+    from homeagentp_core.modules.media.connectors import JellyfinAdapter as PkgJellyfin
+    from homeagentp_core.modules.media.connectors.jellyfin import (
+        JellyfinAdapter as DirectJellyfin,
+    )
+
+    assert legacy_adapters.JellyfinAdapter is DirectJellyfin
+    assert PkgJellyfin is DirectJellyfin
+
+    settings = _make_media_settings(tmp_path)
+    transport = _build_valid_transports()["jellyfin"]
+    snap = DirectJellyfin(settings, transport=transport).collect()
+    assert snap["service"] == "jellyfin"
+    assert snap["status"] == "degraded"
+    assert snap["version"] == "10.9.11"
+    assert snap["metrics"]["libraries"] == {
+        "movies": 420,
+        "series": 85,
+        "episodes": 3120,
+        "songs": 150,
+        "albums": 18,
+    }
+    assert snap["metrics"]["sessions"]["active_count"] == 2
+    assert snap["metrics"]["sessions"]["direct_play_count"] == 1
+    assert snap["metrics"]["sessions"]["transcoding_count"] == 1
+    assert snap["metrics"]["playback_errors"]["accessible"] is True
+    assert snap["metrics"]["playback_errors"]["count"] == 1
+
+
