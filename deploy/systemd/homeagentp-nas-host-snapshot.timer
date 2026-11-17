@@ -1,0 +1,14 @@
+# HomeAgentP B+ — Sample Timer for NAS Host Telemetry Snapshot Producer
+# Reference template only (NOT deployed automatically).
+
+[Unit]
+Description=Run HomeAgentP NAS Host Telemetry Snapshot Producer every 60 seconds
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=5s
+Unit=homeagentp-nas-host-snapshot.service
+
+[Install]
+WantedBy=timers.target

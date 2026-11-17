@@ -142,3 +142,158 @@ print('Isolated restore verified:', restored)
 | `401 Unauthorized` on Dashboard or API calls | Session expired or cookie not sent over HTTP when `HOMEAGENTP_COOKIE_SECURE=true`. | For localhost HTTP dev, set `HOMEAGENTP_COOKIE_SECURE=false` in `.env` and sign in again. |
 | `403 Forbidden: Missing or invalid CSRF token` | Write request (`POST`/`PATCH`) missing `X-CSRF-Token` header or using an outdated token. | Refresh `/api/v1/auth/me` or sign out and back in so the UI holds the active session's CSRF token. |
 | `403 Forbidden: Symlinks are prohibited` / `Hardlinked files (st_nlink > 1) are prohibited` / `SHA-256 checksum mismatch` | Script file in `HOMEAGENTP_SCRIPTS_DIR` is a symlink, hardlink, or was edited without updating `manifest.json`. | Replace with a regular single-link file and update `manifest.json` SHA-256 after human review. |
+
+---
+
+## 7. Phase 02 — NAS Guardian Hardening (`P02-F01`–`P02-F05`) & Host Collector Guide
+
+### 7.1. Host vs. Container Telemetry Boundary (`P02-F01`)
+
+Inside a Docker/CasaOS container, `/proc`, `/`, and `/proc/mounts` belong to the **container's own namespace** (`overlay` rootfs), **not** the Debian 12 NAS host.
+- If `homeagentp-core` blindly inspected `/proc/mounts` and `/` inside a container, `/mnt/disk1` and `/mnt/disk2` would be absent or appear on the container rootfs, triggering false-positive critical HDD unmount alerts.
+- `homeagentp-core` enforces a strict boundary (`verify_direct_host_boundary()`):
+  1. **`host_snapshot` Mode (Recommended for Debian 12 / CasaOS)**: A least-privilege host systemd timer writes an atomic JSON snapshot (`nas_host_snapshot.json`, schema `homeagentp.nas_host.v1`) into a host directory mounted read-only (`:ro`) into `homeagentp-core` (`HOMEAGENTP_REPORTS_DIR`). `homeagentp-core` never needs host filesystem mounts or elevated capabilities.
+  2. **`direct_host_fs` Mode**: Requires explicit read-only host mounts (`HOMEAGENTP_NAS_PROC_ROOT=/host/proc`, `HOMEAGENTP_NAS_ROOT_MOUNT_PATH=/host/root`). If configured with container-local `/proc`, `/`, or if the mounts table reports a container `overlay`/`aufs`/`shm` root filesystem, `homeagentp-core` rejects the boundary, returns `status: "unavailable"` (`host_verified: false`), and **never** emits false HDD unmount alerts.
+
+```dotenv
+HOMEAGENTP_HOST_REPORTS_DIR=/var/lib/homeagentp/reports
+HOMEAGENTP_NAS_ADAPTER_ENABLED=true
+HOMEAGENTP_NAS_TELEMETRY_MODE=host_snapshot
+HOMEAGENTP_NAS_HOST_SNAPSHOT_REL_PATH=nas_host_snapshot.json
+HOMEAGENTP_NAS_CONTAINER_SNAPSHOT_REL_PATH=containers_snapshot.json
+HOMEAGENTP_NAS_SNAPSHOT_MAX_AGE_SECONDS=180
+HOMEAGENTP_NAS_SCHEDULER_ENABLED=true
+HOMEAGENTP_NAS_COLLECTION_INTERVAL_SECONDS=60
+HOMEAGENTP_NAS_COLLECTION_TIMEOUT_SECONDS=10.0
+HOMEAGENTP_NAS_MIN_PERSIST_INTERVAL_SECONDS=15
+HOMEAGENTP_NAS_HISTORY_RETENTION_LIMIT=120
+```
+
+### 7.2. Host Snapshot Directory, Non-Root Permissions & Docker Compose Handoff
+
+To ensure the systemd host producer runs **non-root** while `homeagentp-core` (running as container `user: "10001:10001"`) reads the exact snapshot file through a read-only (`:ro`) bind mount without Docker Socket or privileged mode:
+
+1. **Path Synchronization Between Host Systemd and Docker Compose:**
+   - **Host Producer Output (`deploy/systemd/homeagentp-nas-host-snapshot.service`):**
+     `/var/lib/homeagentp/reports/nas_host_snapshot.json`
+   - **Docker Compose Read-Only Bind Mount (`deploy/docker-compose.dev.yml`):**
+     `${HOMEAGENTP_HOST_REPORTS_DIR:-/var/lib/homeagentp/reports}:/config/reports:ro`
+   - **Container Environment (`homeagentp-core`):**
+     `HOMEAGENTP_REPORTS_DIR=/config/reports` and `HOMEAGENTP_NAS_HOST_SNAPSHOT_REL_PATH=nas_host_snapshot.json` (reads `/config/reports/nas_host_snapshot.json`).
+
+2. **Create Host Snapshot Directory & Non-Root Ownership (`10001:10001`):**
+   ```bash
+   # 1. Create dedicated non-root system group/user matching homeagentp-core UID/GID 10001:10001
+   sudo groupadd -g 10001 -r homeagentp || true
+   sudo useradd -u 10001 -g 10001 -r -s /usr/sbin/nologin -d /var/lib/homeagentp homeagentp || true
+
+   # 2. Create the snapshot directory owned by 10001:10001 with mode 0755 (rwxr-xr-x)
+   sudo install -d -m 0755 -o 10001 -g 10001 /var/lib/homeagentp/reports
+   ```
+   - `deploy/systemd/homeagentp-nas-host-snapshot.service` runs with `User=10001`, `Group=10001`, `UMask=0022`, `StateDirectory=homeagentp/reports`, `StateDirectoryMode=0755`, and `ReadWritePaths=/var/lib/homeagentp/reports`.
+   - `write_atomic_json_snapshot()` writes `.nas_host_snapshot.json.<pid>.tmp`, enforces `os.fchmod(fd, 0o644)` (`-rw-r--r--`), flushes via `os.fsync()`, and atomically renames to `nas_host_snapshot.json`.
+
+3. **Verify Directory Ownership, File Mode, and Readability by Core UID `10001`:**
+   ```bash
+   # Verify directory is mode 755 and owned by 10001:10001
+   stat -c '%a %u:%g %n' /var/lib/homeagentp/reports
+   # Expected: 755 10001:10001 /var/lib/homeagentp/reports
+
+   # Run a one-shot test as UID:GID 10001:10001
+   sudo -u '#10001' -g '#10001' /opt/homeagentp/venv/bin/python -m homeagentp_core.modules.nas.host_producer \
+     --output /var/lib/homeagentp/reports/nas_host_snapshot.json \
+     --proc-root /proc \
+     --root-mount / \
+     --required-mounts /mnt/disk1,/mnt/disk2 \
+     --ttl-seconds 120
+
+   # Verify snapshot file has mode 644, link count 1 (st_nlink == 1), and is readable by UID 10001
+   stat -c '%a %h %u:%g %n' /var/lib/homeagentp/reports/nas_host_snapshot.json
+   # Expected: 644 1 10001:10001 /var/lib/homeagentp/reports/nas_host_snapshot.json
+
+   sudo -u '#10001' -g '#10001' test -r /var/lib/homeagentp/reports/nas_host_snapshot.json && echo "READABLE_BY_10001_OK"
+   ```
+
+### 7.3. Host & Container Snapshot JSON Schemas & Freshness (`P02-F03`)
+
+Both snapshot files are read via the TOCTOU-resistant `read_allowlisted_text_file()` (`O_NOFOLLOW`, `st_nlink == 1`) and validated for `schema_version`, `generated_at` (ISO-8601 UTC), and `ttl_seconds` (capped by `HOMEAGENTP_NAS_SNAPSHOT_MAX_AGE_SECONDS`). If `age_seconds > effective_ttl`, the snapshot is marked `status: "stale"` (`fresh: false`) and is **never** treated as live status.
+
+#### Host Snapshot Schema (`homeagentp.nas_host.v1`)
+```json
+{
+  "schema_version": "homeagentp.nas_host.v1",
+  "generated_at": "2026-11-17T06:30:00+00:00",
+  "ttl_seconds": 120,
+  "cpu": {
+    "status": "ok",
+    "usage_percent": 18.4,
+    "logical_cores": 4,
+    "load_1m": 0.42,
+    "load_5m": 0.35,
+    "load_15m": 0.28,
+    "pressure": { "status": "ok", "some": { "avg10": 0.5, "avg60": 0.2, "avg300": 0.1, "total_us": 4000 }, "full": null }
+  },
+  "memory": {
+    "status": "ok",
+    "total_bytes": 17179869184,
+    "available_bytes": 12884901888,
+    "used_bytes": 4294967296,
+    "usage_percent": 25.0,
+    "swap_total_bytes": 4294967296,
+    "swap_free_bytes": 4294967296,
+    "swap_used_bytes": 0,
+    "swap_usage_percent": 0.0,
+    "pressure": { "status": "ok", "some": null, "full": null }
+  },
+  "mounts": [
+    { "mount_point": "/", "status": "mounted", "device": "/dev/nvme0n1p2", "fstype": "ext4", "total_bytes": 268435456000, "used_bytes": 53687091200, "available_bytes": 214748364800, "usage_percent": 20.0 },
+    { "mount_point": "/mnt/disk1", "status": "mounted", "device": "/dev/sda1", "fstype": "ext4", "total_bytes": 8000000000000, "used_bytes": 4000000000000, "available_bytes": 4000000000000, "usage_percent": 50.0 },
+    { "mount_point": "/mnt/disk2", "status": "mounted", "device": "/dev/sdb1", "fstype": "ext4", "total_bytes": 8000000000000, "used_bytes": 3200000000000, "available_bytes": 4800000000000, "usage_percent": 40.0 }
+  ]
+}
+```
+
+#### Container Health Snapshot Schema (`homeagentp.containers.v1`)
+- Mounting `/var/run/docker.sock` into `homeagentp-core` is **strictly prohibited**.
+- A separate one-shot host systemd service/timer (running outside `homeagentp-core`) writes `containers_snapshot.json` atomically (`tmp` + `mv`) into the directory mounted `:ro` at `/config/reports` inside `homeagentp-core`:
+```json
+{
+  "schema_version": "homeagentp.containers.v1",
+  "generated_at": "2026-11-17T06:30:00+00:00",
+  "ttl_seconds": 120,
+  "containers": [
+    {
+      "name": "jellyfin",
+      "state": "running",
+      "memory_used_bytes": 900000000,
+      "memory_limit_bytes": 2147483648,
+      "cpu_percent": 12.5,
+      "restart_count": 0
+    }
+  ]
+}
+```
+
+### 7.4. Automatic Collection Scheduler (`P02-F02`), Bounded Shutdown & Alert Lifecycle (`P02-F04`)
+
+- **Background Scheduler (`NasCollectionScheduler`):** Runs every `HOMEAGENTP_NAS_COLLECTION_INTERVAL_SECONDS` (`60s` default) inside the FastAPI `lifespan`, guarded by an `asyncio.Lock` AND a worker-thread `threading.Lock` (`_worker_lock`) inside a single-worker `ThreadPoolExecutor(max_workers=1)` so a timed-out OS I/O call never spawns a second overlapping collection thread (`last_status = "skipped_worker_busy"`).
+- **Bounded Shutdown & Honest Worker State:** On `stop(wait_timeout=...)`, the scheduler sets `stopping = True`, rejects any new `run_once()` calls, cancels the sleep loop, and waits up to `wait_timeout` (`2.0s` default) for `_worker_lock` to be released.
+  - If the worker finishes within `wait_timeout`, `executor.shutdown(wait=True, cancel_futures=True)` completes and `last_status` transitions to `"stopped"` (`stopping = False`, `worker_thread_busy = False`).
+  - If the worker thread is still blocked on kernel/filesystem I/O after `wait_timeout`, the scheduler calls `executor.shutdown(wait=False, cancel_futures=True)` to avoid hanging FastAPI shutdown indefinitely, and reports `last_status = "stopping_worker_hung"`, `stopping = True`, `worker_thread_busy = True` (never falsely claiming `"stopped"` until the worker thread's `finally:` block actually releases `_worker_lock`).
+- **Stateful Alert Lifecycle (`nas_alerts`):** Deduplicates active alerts by `alert_key` (`{component}:{code}`), updating `last_seen_at` and incrementing `occurrences`. Automatically marks cleared alerts `status = 'resolved'` with `resolved_at`, and inserts a new `active` row if the fault re-occurs later.
+
+---
+
+## 8. Mandatory Pre-Production Checklist (Must Complete Before Any NAS Deployment)
+
+Before requesting owner approval to deploy HomeAgentP onto the production Debian 12 / CasaOS NAS:
+
+1. **Docker Compose Staging Verification (Phase 01 F05 & Phase 02):**
+   - Run `deploy/docker-compose.dev.yml` on an isolated Linux staging host with a Docker daemon.
+   - Verify container startup, healthcheck (`/api/v1/health`), Nginx reverse proxy, authentication, CSRF enforcement, SQLite persistence across restarts, read-only rootfs, and non-root UID/GID (`10001:10001` and `101:101`).
+2. **Stopped-Database Restore Drill:**
+   - Stop `homeagentp-core` completely, run `restore_sqlite_database()` to replace the active SQLite database file from a verified backup, run `PRAGMA integrity_check;` and `PRAGMA foreign_key_check;`, and restart `homeagentp-core` to confirm clean recovery.
+3. **Security Review & Hardening of Existing Antigravity Terminal Container (`ttyd` Port `7681`):**
+   - Audit the pre-existing Antigravity terminal container on the NAS (currently running as `root`, mounting `/var/run/docker.sock` RW, and exposing `ttyd` on `0.0.0.0:7681`).
+   - Restrict network exposure (bind to localhost/VPN only), remove unnecessary root/Docker socket privileges, and **never** use that container to run unreviewed AI-generated deployment scripts.
+

@@ -13,6 +13,10 @@ vi.mock("../api/client", async () => {
       login: vi.fn(),
       logout: vi.fn(),
       getOverview: vi.fn(),
+      getNasStatus: vi.fn(),
+      collectNasSnapshot: vi.fn(),
+      listNasHistory: vi.fn(),
+      listNasAlerts: vi.fn(),
       getSettings: vi.fn(),
       listProjects: vi.fn(),
       listTasks: vi.fn(),
@@ -45,7 +49,7 @@ describe("HomeAgentP Web Dashboard", () => {
     });
   });
 
-  it("renders honest unavailable states and navigates across NAS, Media, Tasks, Scripts, Reports, and Settings", async () => {
+  it("renders honest unavailable states and navigates across NAS Guardian, Media, Tasks, Scripts, Reports, and Settings", async () => {
     mockedClient.getMe.mockResolvedValueOnce({
       username: "nas_owner",
       role: "owner",
@@ -71,7 +75,7 @@ describe("HomeAgentP Web Dashboard", () => {
           title: "NAS Guardian",
           status: "unavailable",
           phase: "Phase 02",
-          reason: "Read-only NAS telemetry adapter not enabled in Phase 01 Foundation.",
+          reason: "Read-only NAS telemetry adapter is disabled.",
           metrics: {
             cpu_load: "unavailable",
             ram_usage: "unavailable",
@@ -119,6 +123,198 @@ describe("HomeAgentP Web Dashboard", () => {
           consumer_cli_wrapper: "disabled_by_policy",
         },
       },
+    });
+
+    mockedClient.getNasStatus.mockResolvedValue({
+      status: "critical",
+      adapter_enabled: true,
+      collected_at: "2026-11-16T20:05:00Z",
+      collection_interval_seconds: 60,
+      history_retention_limit: 500,
+      thresholds: {
+        cpu_warn_percent: 80,
+        cpu_critical_percent: 92,
+        ram_warn_percent: 82,
+        ram_critical_percent: 92,
+        disk_warn_percent: 80,
+        disk_critical_percent: 90,
+        container_mem_warn_percent: 85,
+        container_mem_critical_percent: 95,
+      },
+      cpu: {
+        status: "ok",
+        usage_percent: 18.4,
+        logical_cores: 4,
+        load_1m: 0.42,
+        load_5m: 0.35,
+        load_15m: 0.28,
+        pressure: {
+          some: { avg10: 1.25, avg60: 0.65, avg300: 0.2, total_us: 12000 },
+          full: null,
+        },
+      },
+      memory: {
+        status: "ok",
+        total_bytes: 16 * 1024 * 1024 * 1024,
+        available_bytes: 12 * 1024 * 1024 * 1024,
+        used_bytes: 4 * 1024 * 1024 * 1024,
+        usage_percent: 25.0,
+        swap_total_bytes: 4 * 1024 * 1024 * 1024,
+        swap_free_bytes: 4 * 1024 * 1024 * 1024,
+        swap_used_bytes: 0,
+        swap_usage_percent: 0.0,
+        pressure: {
+          some: { avg10: 0.05, avg60: 0.02, avg300: 0.0, total_us: 500 },
+          full: { avg10: 0.0, avg60: 0.0, avg300: 0.0, total_us: 0 },
+        },
+      },
+      mounts: {
+        "/": {
+          path: "/",
+          required: false,
+          status: "mounted",
+          is_mounted: true,
+          is_root_fallback: false,
+          device: "/dev/nvme0n1p2",
+          fstype: "ext4",
+          total_bytes: 256 * 1024 * 1024 * 1024,
+          available_bytes: 200 * 1024 * 1024 * 1024,
+          used_bytes: 56 * 1024 * 1024 * 1024,
+          usage_percent: 21.9,
+          reason: "",
+        },
+        "/mnt/disk1": {
+          path: "/mnt/disk1",
+          required: true,
+          status: "mounted",
+          is_mounted: true,
+          is_root_fallback: false,
+          device: "/dev/sda1",
+          fstype: "ext4",
+          total_bytes: 8000 * 1024 * 1024 * 1024,
+          available_bytes: 3000 * 1024 * 1024 * 1024,
+          used_bytes: 5000 * 1024 * 1024 * 1024,
+          usage_percent: 62.5,
+          reason: "",
+        },
+        "/mnt/disk2": {
+          path: "/mnt/disk2",
+          required: true,
+          status: "unmounted_fallback",
+          is_mounted: false,
+          is_root_fallback: true,
+          device: "",
+          fstype: "",
+          total_bytes: null,
+          available_bytes: null,
+          used_bytes: null,
+          usage_percent: null,
+          reason: "Directory exists on root filesystem (/) — underlying HDD is unmounted.",
+        },
+      },
+      containers: {
+        status: "unavailable",
+        docker_socket_mounted: false,
+        source: "not_configured",
+        services: {
+          jellyfin: {
+            name: "jellyfin",
+            status: "unavailable",
+            state: "unavailable",
+            memory_bytes: null,
+            memory_limit_bytes: null,
+            memory_percent: null,
+            restart_count: null,
+            reason: "No read-only container snapshot configured.",
+          },
+        },
+        reason: "Docker socket is prohibited by B+ policy.",
+      },
+      alerts: [
+        {
+          alert_key: "mount:/mnt/disk2:mount.unmounted_fallback",
+          code: "mount.unmounted_fallback",
+          severity: "critical",
+          category: "mount_guardian",
+          target: "/mnt/disk2",
+          message: "Mount /mnt/disk2 is UNMOUNTED (directory fell back to root filesystem /).",
+          status: "active",
+          first_seen_at: "2026-11-16T20:00:00Z",
+          last_seen_at: "2026-11-16T20:05:00Z",
+          occurrences: 3,
+        },
+      ],
+      telemetry_boundary: {
+        mode: "host_snapshot",
+        source: "nas_host_snapshot.json",
+        host_verified: true,
+        fresh: true,
+      },
+      scheduler: {
+        enabled: true,
+        running: true,
+        last_status: "critical",
+      },
+      storage_safety: {
+        hdd_write_operations: 0,
+        media_tree_crawled: false,
+        docker_socket_used: false,
+      },
+    });
+
+    mockedClient.listNasHistory.mockResolvedValue([
+      {
+        id: 1,
+        collected_at: "2026-11-16T20:05:00Z",
+        adapter_status: "critical",
+        cpu_usage_percent: 18.4,
+        load_1m: 0.42,
+        load_5m: 0.35,
+        load_15m: 0.28,
+        ram_total_bytes: 16 * 1024 * 1024 * 1024,
+        ram_available_bytes: 12 * 1024 * 1024 * 1024,
+        ram_used_bytes: 4 * 1024 * 1024 * 1024,
+        ram_usage_percent: 25.0,
+        swap_total_bytes: 4 * 1024 * 1024 * 1024,
+        swap_used_bytes: 0,
+        swap_usage_percent: 0.0,
+      },
+    ]);
+
+    mockedClient.listNasAlerts.mockImplementation(async (includeResolved?: boolean) => {
+      const activeItem = {
+        id: 1,
+        alert_key: "mount:/mnt/disk2:mount.unmounted_fallback",
+        code: "mount.unmounted_fallback",
+        severity: "critical" as const,
+        category: "mount_guardian",
+        target: "/mnt/disk2",
+        message: "Mount /mnt/disk2 is UNMOUNTED (directory fell back to root filesystem /).",
+        status: "active",
+        first_seen_at: "2026-11-16T20:00:00Z",
+        last_seen_at: "2026-11-16T20:05:00Z",
+        occurrences: 3,
+      };
+      if (includeResolved) {
+        return [
+          activeItem,
+          {
+            id: 2,
+            alert_key: "cpu:cpu.usage_warning",
+            code: "cpu.usage_warning",
+            severity: "warning" as const,
+            category: "cpu",
+            target: "cpu",
+            message: "CPU usage was elevated.",
+            status: "resolved",
+            first_seen_at: "2026-11-16T19:00:00Z",
+            last_seen_at: "2026-11-16T19:05:00Z",
+            resolved_at: "2026-11-16T19:06:00Z",
+            occurrences: 2,
+          },
+        ];
+      }
+      return [activeItem];
     });
 
     mockedClient.listProjects.mockResolvedValue([
@@ -213,7 +409,7 @@ describe("HomeAgentP Web Dashboard", () => {
       script_execution_enabled: false,
       docker_socket_mounted: false,
       antigravity_cli_wrapper: "prohibited",
-      integrations: { nas_guardian: "unavailable" },
+      integrations: { nas_guardian: "critical" },
     });
 
     render(<App />);
@@ -225,6 +421,28 @@ describe("HomeAgentP Web Dashboard", () => {
     expect(screen.getByText("Mount /mnt/disk1")).toBeInTheDocument();
     expect(screen.getByText("Mount /mnt/disk2")).toBeInTheDocument();
     expect(screen.getAllByText("UNAVAILABLE").length).toBeGreaterThan(5);
+    expect(mockedClient.listNasAlerts).toHaveBeenCalledWith(false);
+
+    // Navigate to NAS Guardian
+    fireEvent.click(screen.getByRole("button", { name: /^NAS Guardian$/i }));
+    expect(
+      screen.getByText(/NAS Guardian \(CPU, RAM, Mount Guardian & Container Health\)/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText("HOST_SNAPSHOT")).toBeInTheDocument();
+    expect(screen.getByText("UNMOUNTED_FALLBACK")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Mount \/mnt\/disk2 is UNMOUNTED \(directory fell back to root filesystem \/\)\./i,
+      ),
+    ).toBeInTheDocument();
+
+    // Toggle "Show resolved" checkbox -> calls listNasAlerts(true) and displays resolved alert
+    fireEvent.click(screen.getByLabelText(/Show resolved/i));
+    await waitFor(() => {
+      expect(mockedClient.listNasAlerts).toHaveBeenCalledWith(true);
+      expect(screen.getByText("CPU usage was elevated.")).toBeInTheDocument();
+      expect(screen.getByText("RESOLVED")).toBeInTheDocument();
+    });
 
     // Navigate to Tasks
     fireEvent.click(screen.getByRole("button", { name: /Tasks & AI Handoff/i }));

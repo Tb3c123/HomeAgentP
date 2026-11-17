@@ -2,6 +2,9 @@ import type {
   AuditLogItem,
   AuthUser,
   DomainCategory,
+  NasAlertItem,
+  NasHistoryItem,
+  NasStatusResponse,
   OverviewResponse,
   ProjectItem,
   RedactedSettings,
@@ -133,4 +136,17 @@ export const apiClient = {
   getReportDetail: (slug: string) =>
     requestJson<ReportDetailItem>(`/api/v1/reports/${encodeURIComponent(slug)}`),
   listAuditLogs: () => requestJson<AuditLogItem[]>("/api/v1/audit-logs"),
+  getNasStatus: () => requestJson<NasStatusResponse>("/api/v1/nas/status"),
+  collectNasSnapshot: (csrfToken: string) =>
+    requestJson<NasStatusResponse>(
+      "/api/v1/nas/collect",
+      { method: "POST" },
+      csrfToken,
+    ),
+  listNasHistory: (limit = 20) =>
+    requestJson<NasHistoryItem[]>(`/api/v1/nas/history?limit=${limit}`),
+  listNasAlerts: (includeResolved = false) =>
+    requestJson<NasAlertItem[]>(
+      `/api/v1/nas/alerts?include_resolved=${includeResolved ? "true" : "false"}`,
+    ),
 };

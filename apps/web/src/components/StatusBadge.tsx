@@ -10,6 +10,9 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ value }) => {
   if (
     normalized === "online" ||
     normalized === "ok" ||
+    normalized === "mounted" ||
+    normalized === "running" ||
+    normalized === "resolved" ||
     normalized === "allowlisted" ||
     normalized === "done" ||
     normalized === "succeeded"
@@ -19,7 +22,11 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ value }) => {
     normalized === "unavailable" ||
     normalized === "not_configured" ||
     normalized === "not_tested" ||
-    normalized === "draft"
+    normalized === "draft" ||
+    normalized === "warning" ||
+    normalized === "degraded" ||
+    normalized === "stale" ||
+    normalized === "active"
   ) {
     tone = "badge-warning";
   } else if (
@@ -32,7 +39,12 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ value }) => {
   } else if (
     normalized === "blocked" ||
     normalized === "failed" ||
-    normalized === "revoked"
+    normalized === "revoked" ||
+    normalized === "critical" ||
+    normalized === "missing" ||
+    normalized === "unmounted_fallback" ||
+    normalized === "permission_denied" ||
+    normalized === "error"
   ) {
     tone = "badge-danger";
   }

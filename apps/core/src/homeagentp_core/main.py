@@ -15,6 +15,8 @@ from homeagentp_core.db.connection import db_session
 from homeagentp_core.db.migrator import apply_migrations
 from homeagentp_core.logging import configure_logging
 from homeagentp_core.modules.health.router import router as health_router
+from homeagentp_core.modules.nas.router import router as nas_router
+from homeagentp_core.modules.nas.scheduler import NasCollectionScheduler
 from homeagentp_core.modules.reports.router import router as reports_router
 from homeagentp_core.modules.scripts.router import router as scripts_router
 from homeagentp_core.modules.tasks.router import router as tasks_router
@@ -44,31 +46,39 @@ def initialize_core_state(settings: Settings) -> None:
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Create and configure the HomeAgentP Core FastAPI application.
 
-    Note (F04): initialize_core_state() is invoked exclusively inside the FastAPI
-    lifespan context manager so startup initialization executes exactly once.
+    Note (F04 & P02-F02): initialize_core_state() and the optional NasCollectionScheduler
+    are managed exclusively inside the FastAPI lifespan context manager.
     """
     resolved_settings = settings if settings is not None else Settings()  # type: ignore[call-arg]
+    nas_scheduler = NasCollectionScheduler(resolved_settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         initialize_core_state(resolved_settings)
         app.state.init_count = getattr(app.state, "init_count", 0) + 1
-        yield
+        await nas_scheduler.start()
+        try:
+            yield
+        finally:
+            await nas_scheduler.stop()
 
     app = FastAPI(
         title="HomeAgentP Core API",
         version=__version__,
         description=(
-            "HomeAgentP B+ Core service: NAS operations, Media/Downloads read-only hub, "
-            "Home Assistant & Telegram foundation, Tasks, and read-only Script Registry."
+            "HomeAgentP B+ Core service: NAS Guardian read-only telemetry, "
+            "Media/Downloads read-only hub, Home Assistant & Telegram foundation, "
+            "Tasks, and read-only Script Registry."
         ),
         lifespan=lifespan,
     )
     app.state.settings = resolved_settings
+    app.state.nas_scheduler = nas_scheduler
     app.state.init_count = 0
 
     app.include_router(health_router)
     app.include_router(auth_router)
+    app.include_router(nas_router)
     app.include_router(tasks_router)
     app.include_router(scripts_router)
     app.include_router(reports_router)
