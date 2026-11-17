@@ -16,7 +16,7 @@ interface TaskBriefPanelProps {
   isOwner: boolean;
   busy: boolean;
   onCreateBrief: (taskId: number, payload: TaskBriefCreateInput) => Promise<boolean>;
-  onExportBrief: (taskId: number, version?: number) => Promise<void>;
+  onExportBrief: (taskId: number, version: number) => Promise<void>;
 }
 
 export function TaskBriefPanel({

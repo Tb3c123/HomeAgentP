@@ -27,12 +27,10 @@ export const workspaceClient = {
       csrfToken,
     ),
 
-  exportTaskBrief: (taskId: number, version?: number) => {
-    const qs = version !== undefined ? `?version=${version}` : "";
-    return requestJson<TaskBriefExportItem>(
-      `/api/v1/workspace/tasks/${taskId}/briefs/export${qs}`,
-    );
-  },
+  exportTaskBrief: (taskId: number, version: number) =>
+    requestJson<TaskBriefExportItem>(
+      `/api/v1/workspace/tasks/${taskId}/briefs/${version}/export`,
+    ),
 
   listArtifacts: (filters: ArtifactFilterParams = {}) => {
     const params = new URLSearchParams();

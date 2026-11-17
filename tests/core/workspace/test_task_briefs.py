@@ -224,3 +224,49 @@ def test_task_brief_rendered_text_secret_and_item_bounds(tmp_path: Path) -> None
             ).status_code
             == 422
         )
+
+
+def test_task_brief_export_route_contract_and_missing_version(tmp_path: Path) -> None:
+    settings = make_workspace_settings(tmp_path, db_name="brief_export_contract.db")
+    app = create_app(settings)
+
+    with TestClient(app) as unauth_client:
+        assert unauth_client.get("/api/v1/workspace/tasks/1/briefs/1/export").status_code == 401
+
+    with TestClient(app) as client:
+        csrf = login_client(client, TEST_ADMIN_USERNAME, TEST_ADMIN_PASSWORD)
+        task_id = client.post(
+            "/api/v1/tasks",
+            json={"title": "Contract export check", "category": "ai_workspace"},
+            headers={"X-CSRF-Token": csrf},
+        ).json()["id"]
+
+        created = client.post(
+            f"/api/v1/workspace/tasks/{task_id}/briefs",
+            json={"purpose": "Verify export route contract", "human_status": "ready_for_handoff"},
+            headers={"X-CSRF-Token": csrf},
+        )
+        assert created.status_code == 201
+
+        resp = client.get(f"/api/v1/workspace/tasks/{task_id}/briefs/1/export")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert set(body.keys()) == {
+            "task_id",
+            "version",
+            "human_status",
+            "handoff_mode",
+            "rendered_text",
+        }
+        assert body["task_id"] == task_id
+        assert body["version"] == 1
+        assert body["human_status"] == "ready_for_handoff"
+        assert body["handoff_mode"] == "manual_copy_only"
+        assert "Verify export route contract" in body["rendered_text"]
+
+        # Legacy/wrong query-param route must not be served
+        legacy = client.get(f"/api/v1/workspace/tasks/{task_id}/briefs/export?version=1")
+        assert legacy.status_code in (404, 422)
+        # Missing version returns 404
+        assert client.get(f"/api/v1/workspace/tasks/{task_id}/briefs/99/export").status_code == 404
+

@@ -135,7 +135,7 @@ export function useWorkspaceData(user: AuthUser, tasks: TaskItem[]) {
     }
   };
 
-  const exportBrief = async (taskId: number, version?: number): Promise<void> => {
+  const exportBrief = async (taskId: number, version: number): Promise<void> => {
     setWorkspaceError("");
     setWorkspaceNotice("");
     try {
