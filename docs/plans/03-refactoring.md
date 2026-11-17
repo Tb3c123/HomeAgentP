@@ -121,9 +121,11 @@
 | **R02.6 (Bazarr & Prowlarr)** | `COMPLETED` | `4ab1974`, `403ea16` | Extracted `BazarrAdapter` (`connectors/bazarr.py`, 154 lines) and `ProwlarrAdapter` (`connectors/prowlarr.py`, 194 lines) in separate commits. |
 | **R02.7 (Seerr & Registry)** | `COMPLETED` | `588798e` | Extracted `SeerrAdapter` (`connectors/seerr.py`, 159 lines) and `build_media_adapters` (`connectors/registry.py`, 33 lines); `adapters.py` reduced to `51`-line thin compatibility layer. Full backend & frontend checks PASS. |
 | **R03.1 (Base Split)** | `COMPLETED` | `b66ab39` | Split `base.py` (475 lines) into `errors.py` (62), `security.py` (147), `http_client.py` (209), `adapter_base.py` (168); `base.py` reduced to `58`-line compatibility layer. |
-| **R03.2 (Security Hardening)** | `COMPLETED` | `a507a89` | Hardened segment-safe path matching, IPv4-mapped IPv6 & DNS resolution SSRF checks, 3xx redirect blocking, early `Content-Length` cap, and added regression test `test_r03_security_hardening_regressions` (`40` pytest, `ruff`, `mypy` PASS). |
-| **R04** | `PENDING` | — | Split `collector.py` (855 lines) into state, alerts, persistence, orchestration. |
-| **R05** | `PENDING` | — | Shared hardened scheduler + regression tests. |
+| **R03.2 (Security Hardening)** | `COMPLETED` | `a507a89`, `5bfb3df` | Hardened segment-safe path matching, IPv4-mapped IPv6 & DNS resolution SSRF checks, 3xx redirect blocking, early `Content-Length` cap, fail-closed DNS lookup, and single-lookup IP pinning via `SafeDnsPinningBackend` (`test_r03_security_hardening_regressions`, `test_r03_dns_pinning_fail_closed_and_rebinding_protection` PASS). |
+| **R04.1 (Media State)** | `COMPLETED` | `909e186` | Extracted service state & failure threshold logic into `media/state.py` (317 lines). |
+| **R04.2 (Media Alerts)** | `COMPLETED` | `e9a30ed` | Extracted alert lifecycle & SQLite querying into `media/alerts.py` (154 lines). |
+| **R04.3 (Media Persistence)** | `COMPLETED` | `f2a1704` | Extracted SQLite persistence & history into `media/persistence.py` (140 lines); `collector.py` reduced `856 -> 306` lines with compatibility re-exports. |
+| **R05 (Shared Scheduler)** | `COMPLETED` | `c0618fe` | Extracted `HardenedPeriodicScheduler` into `homeagentp_core/scheduler.py`; migrated `NasCollectionScheduler` and `MediaCollectionScheduler`; added `test_r05_media_scheduler_hardened_worker_timeout_shutdown_and_restart`. |
 | **R06** | `PENDING` | — | Split `App.tsx` (1,874 lines) starting with Media Dashboard. |
 | **R07** | `PENDING` | — | Split `test_media_downloads.py` by service/concern. |
 
