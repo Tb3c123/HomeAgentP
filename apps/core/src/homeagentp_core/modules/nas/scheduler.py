@@ -2,21 +2,30 @@
 
 Invariants:
 - Runs independently of Dashboard requests inside the FastAPI lifespan when enabled.
-- Non-overlapping execution: protected by an `asyncio.Lock` so two collections never overlap.
+- True Non-Overlapping Worker Execution:
+  * Uses a single-worker executor (`ThreadPoolExecutor(max_workers=1)`) plus an explicit
+    `_worker_busy` guard (`threading.Lock`) that is released ONLY inside the worker thread's own
+    `finally:` block, not merely when `asyncio.wait_for()` cancels the awaiting coroutine.
+  * If a previous worker thread timed out in `asyncio.wait_for()` and is still blocked on OS I/O
+    in the background, subsequent `run_once()` calls detect `_worker_busy.locked()` and skip
+    (`skipped_overlap_count += 1`, `last_status = "skipped_worker_busy"`) instead of spawning a
+    second concurrent collection thread.
 - Timeout & Error resilience: wraps each collection + SQLite persistence step in
   `asyncio.wait_for(..., timeout=settings.nas_collection_timeout_seconds)` and records clear
   timestamps and error states (`last_run_at`, `last_success_at`, `last_status`, `last_error`).
 - Excessive SQLite write protection: skips persisting snapshots when telemetry is `unavailable`
   and enforces `settings.nas_min_persist_interval_seconds` via `persist_nas_snapshot()`.
-- Graceful shutdown: cancels the sleep/wait loop cleanly on FastAPI shutdown without leaving
-  dangling tasks or open SQLite transactions.
+- Graceful shutdown: cancels the sleep/wait loop cleanly on FastAPI shutdown and shuts down the
+  single-worker executor without leaving dangling tasks or open SQLite transactions.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import threading
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import Any
 
@@ -44,11 +53,16 @@ class NasCollectionScheduler:
             lambda cfg: collect_nas_telemetry(cfg, sample_delay_seconds=0.01)
         )
         self._lock = asyncio.Lock()
+        self._worker_lock = threading.Lock()
+        self._executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="nas-guardian-worker"
+        )
         self._stop_event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
 
         self.running: bool = False
         self.in_progress: bool = False
+        self.worker_thread_busy: bool = False
         self.last_run_at: str | None = None
         self.last_success_at: str | None = None
         self.last_status: str = "idle"
@@ -64,7 +78,8 @@ class NasCollectionScheduler:
                 self._settings.nas_scheduler_enabled and self._settings.nas_adapter_enabled
             ),
             "running": self.running,
-            "in_progress": self.in_progress,
+            "in_progress": self.in_progress or self._worker_lock.locked(),
+            "worker_thread_busy": self._worker_lock.locked(),
             "interval_seconds": self._settings.nas_collection_interval_seconds,
             "timeout_seconds": self._settings.nas_collection_timeout_seconds,
             "min_persist_interval_seconds": self._settings.nas_min_persist_interval_seconds,
@@ -78,38 +93,58 @@ class NasCollectionScheduler:
         }
 
     def _collect_and_persist_sync(self, *, force_persist: bool = False) -> dict[str, Any]:
-        snapshot = self._collector_fn(self._settings)
-        adapter_st = str(snapshot.get("adapter_status", "unavailable"))
-        snapshot_id = 0
-        # Avoid excessive SQLite writes when telemetry is unavailable unless forced by manual API
-        if force_persist or adapter_st != "unavailable":
-            min_interval = (
-                0 if force_persist else self._settings.nas_min_persist_interval_seconds
-            )
-            with db_session(self._settings.db_path) as conn:
-                snapshot_id = persist_nas_snapshot(
-                    conn,
-                    snapshot,
-                    retention_limit=self._settings.nas_history_retention_limit,
-                    min_persist_interval_seconds=min_interval,
-                    db_key=str(self._settings.db_path),
+        """Run inside the dedicated single worker thread holding `_worker_lock`."""
+        try:
+            snapshot = self._collector_fn(self._settings)
+            adapter_st = str(snapshot.get("adapter_status", "unavailable"))
+            snapshot_id = 0
+            # Avoid excessive SQLite writes when telemetry is unavailable unless forced
+            if force_persist or adapter_st != "unavailable":
+                min_interval = (
+                    0 if force_persist else self._settings.nas_min_persist_interval_seconds
                 )
-        return {"snapshot_id": snapshot_id, "snapshot": snapshot}
+                with db_session(self._settings.db_path) as conn:
+                    snapshot_id = persist_nas_snapshot(
+                        conn,
+                        snapshot,
+                        retention_limit=self._settings.nas_history_retention_limit,
+                        min_persist_interval_seconds=min_interval,
+                        db_key=str(self._settings.db_path),
+                    )
+            return {"snapshot_id": snapshot_id, "snapshot": snapshot}
+        finally:
+            self.worker_thread_busy = False
+            self._worker_lock.release()
 
     async def run_once(self, *, force_persist: bool = False) -> dict[str, Any] | None:
-        """Execute a single non-overlapping collection cycle with timeout protection."""
-        if self._lock.locked():
+        """Execute a single non-overlapping collection cycle with worker-level overlap guard."""
+        if self._lock.locked() or self._worker_lock.locked():
             self.skipped_overlap_count += 1
+            if self._worker_lock.locked() and not self._lock.locked():
+                self.last_status = "skipped_worker_busy"
+                self.last_error = (
+                    "Previous collection worker thread is still finishing after a timeout; "
+                    "skipping cycle to prevent overlapping worker execution."
+                )
             return None
 
         async with self._lock:
+            if not self._worker_lock.acquire(blocking=False):
+                self.skipped_overlap_count += 1
+                self.last_status = "skipped_worker_busy"
+                return None
+
+            self.worker_thread_busy = True
             self.in_progress = True
             self.last_run_at = datetime.now(UTC).isoformat()
+            loop = asyncio.get_running_loop()
             try:
+                future = loop.run_in_executor(
+                    self._executor,
+                    lambda: self._collect_and_persist_sync(force_persist=force_persist),
+                )
                 result = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        self._collect_and_persist_sync, force_persist=force_persist
-                    ),
+                    future,
                     timeout=self._settings.nas_collection_timeout_seconds,
                 )
                 snap = result["snapshot"]
@@ -123,7 +158,8 @@ class NasCollectionScheduler:
                 self.last_status = "timeout"
                 self.last_error = (
                     f"Collection timed out after "
-                    f"{self._settings.nas_collection_timeout_seconds}s."
+                    f"{self._settings.nas_collection_timeout_seconds}s "
+                    "(underlying worker remains guarded until it exits)."
                 )
                 return None
             except Exception as exc:
@@ -158,13 +194,14 @@ class NasCollectionScheduler:
         self._task = asyncio.create_task(self._loop(), name="nas-guardian-scheduler")
 
     async def stop(self) -> None:
-        """Gracefully stop the background loop and wait for any in-flight cycle to finish."""
+        """Gracefully stop the background loop and shut down the worker executor."""
         self._stop_event.set()
         if self._task is not None:
             self._task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._task
             self._task = None
+        self._executor.shutdown(wait=False, cancel_futures=True)
         self.running = False
         if self.last_status == "starting":
             self.last_status = "stopped"

@@ -590,18 +590,50 @@ def test_p02_f02_scheduler_non_overlapping_timeout_and_write_throttling(tmp_path
         assert (out_a is None) or (out_b is None)
         assert overlap_sched.skipped_overlap_count == 1
 
-        # Timeout test
+        # Timeout test + verify underlying worker thread does NOT overlap on next run_once()
         timeout_settings = settings.model_copy(update={"nas_collection_timeout_seconds": 1.0})
+        active_worker_threads = 0
+        max_concurrent_workers = 0
+        call_number = 0
 
-        def hanging_collector(_cfg: Settings) -> dict[str, Any]:
-            _time.sleep(1.3)
-            return fast_collector(_cfg)
+        def hanging_Then_recovering_collector(_cfg: Settings) -> dict[str, Any]:
+            nonlocal active_worker_threads, max_concurrent_workers, call_number
+            call_number += 1
+            active_worker_threads += 1
+            max_concurrent_workers = max(max_concurrent_workers, active_worker_threads)
+            try:
+                if call_number == 1:
+                    _time.sleep(1.35)
+                else:
+                    _time.sleep(0.05)
+                return fast_collector(_cfg)
+            finally:
+                active_worker_threads -= 1
 
-        timeout_sched = NasCollectionScheduler(timeout_settings, collector_fn=hanging_collector)
+        timeout_sched = NasCollectionScheduler(
+            timeout_settings, collector_fn=hanging_Then_recovering_collector
+        )
         out_timeout = await timeout_sched.run_once()
         assert out_timeout is None
         assert timeout_sched.last_status == "timeout"
         assert timeout_sched.last_error is not None and "timed out" in timeout_sched.last_error
+        # Immediately invoke run_once() while the timed-out worker thread is STILL running:
+        # Must be rejected with skipped_worker_busy and never spawn a second concurrent worker!
+        assert timeout_sched.worker_thread_busy is True
+        out_while_busy = await timeout_sched.run_once()
+        assert out_while_busy is None
+        assert timeout_sched.last_status == "skipped_worker_busy"
+        assert timeout_sched.skipped_overlap_count == 1
+        assert max_concurrent_workers == 1
+
+        # Wait for the first worker thread to finish, then confirm the next run succeeds
+        await asyncio.sleep(0.5)
+        assert timeout_sched.worker_thread_busy is False
+        out_after_recovery = await timeout_sched.run_once()
+        assert out_after_recovery is not None
+        assert timeout_sched.last_status == "online"
+        assert max_concurrent_workers == 1
+        await timeout_sched.stop()
 
         # Start and graceful stop test
         await sched.start()
@@ -611,6 +643,119 @@ def test_p02_f02_scheduler_non_overlapping_timeout_and_write_throttling(tmp_path
         assert sched.running is False
 
     asyncio.run(_run_scheduler_checks())
+
+
+def test_host_snapshot_producer_and_systemd_templates(tmp_path: Path) -> None:
+    """Verify host_producer builds schema-valid snapshots atomically and systemd units exist."""
+    from homeagentp_core.modules.nas import host_producer
+
+    proc_dir = tmp_path / "proc"
+    (proc_dir / "pressure").mkdir(parents=True)
+    (proc_dir / "stat").write_text(
+        "cpu  2000 0 200 7800 0 0 0 0 0 0\ncpu0 2000 0 200 7800 0 0 0 0 0 0\n",
+        encoding="utf-8",
+    )
+    (proc_dir / "loadavg").write_text("0.55 0.40 0.25 1/150 500\n", encoding="utf-8")
+    (proc_dir / "pressure" / "cpu").write_text(
+        "some avg10=0.25 avg60=0.10 avg300=0.05 total=1000\n",
+        encoding="utf-8",
+    )
+    (proc_dir / "meminfo").write_text(
+        "MemTotal:       8000000 kB\n"
+        "MemAvailable:    6000000 kB\n"
+        "SwapTotal:       1000000 kB\n"
+        "SwapFree:        1000000 kB\n",
+        encoding="utf-8",
+    )
+    (proc_dir / "pressure" / "memory").write_text(
+        "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\n"
+        "full avg10=0.00 avg60=0.00 avg300=0.00 total=0\n",
+        encoding="utf-8",
+    )
+    (proc_dir / "mounts").write_text(
+        "/dev/nvme0n1p2 / ext4 rw 0 0\n/dev/sda1 /mnt/disk1 ext4 rw 0 0\n",
+        encoding="utf-8",
+    )
+
+    def fake_stat(path: str) -> os.stat_result:
+        if path == "/":
+            return _make_stat_result(0o040755, dev=100)
+        if path == "/mnt/disk1":
+            return _make_stat_result(0o040755, dev=200)
+        if path == "/mnt/disk2":
+            return _make_stat_result(0o040755, dev=100)  # Unmounted fallback on root dev
+        raise FileNotFoundError(path)
+
+    def fake_statvfs(_path: str) -> os.statvfs_result:
+        return _make_statvfs_result(4096, 1000, 500, 500)
+
+    reports_dir = tmp_path / "reports"
+    scripts_dir = tmp_path / "scripts"
+    reports_dir.mkdir()
+    scripts_dir.mkdir()
+    out_file = reports_dir / "nas_host_snapshot.json"
+
+    payload = host_producer.build_host_snapshot_payload(
+        proc_root=proc_dir,
+        root_mount_path="/",
+        required_mounts=["/mnt/disk1", "/mnt/disk2"],
+        ttl_seconds=120,
+        sample_delay_seconds=0.0,
+        stat_fn=fake_stat,
+        statvfs_fn=fake_statvfs,
+    )
+    written = host_producer.write_atomic_json_snapshot(out_file, payload)
+    assert written == out_file.resolve()
+    assert out_file.exists()
+
+    # Verify Core consumes the producer's output via host_snapshot mode
+    settings = Settings(
+        env="testing",
+        db_path=tmp_path / "producer_test.db",
+        secret_key=TEST_SECRET_KEY,
+        admin_username=TEST_ADMIN_USERNAME,
+        admin_password=TEST_ADMIN_PASSWORD,
+        scripts_dir=scripts_dir,
+        reports_dir=reports_dir,
+        nas_adapter_enabled=True,
+        nas_telemetry_mode="host_snapshot",
+        nas_host_snapshot_rel_path="nas_host_snapshot.json",
+    )
+    snap = collect_nas_telemetry(settings)
+    assert snap["telemetry_boundary"]["host_verified"] is True
+    assert snap["telemetry_boundary"]["fresh"] is True
+    assert snap["mounts"]["/mnt/disk1"]["status"] == "mounted"
+    assert snap["mounts"]["/mnt/disk2"]["status"] == "unmounted_fallback"
+
+    # Also test CLI entrypoint main()
+    cli_out = reports_dir / "cli_snapshot.json"
+    rc = host_producer.main(
+        [
+            "--output",
+            str(cli_out),
+            "--proc-root",
+            str(proc_dir),
+            "--root-mount",
+            "/",
+            "--required-mounts",
+            "/mnt/disk1,/mnt/disk2",
+            "--ttl-seconds",
+            "90",
+        ]
+    )
+    assert rc == 0
+    assert cli_out.exists()
+
+    # Verify sample systemd service & timer templates exist and contain hardening directives
+    repo_root = Path(__file__).resolve().parents[2]
+    svc_file = repo_root / "deploy" / "systemd" / "homeagentp-nas-host-snapshot.service"
+    tmr_file = repo_root / "deploy" / "systemd" / "homeagentp-nas-host-snapshot.timer"
+    assert svc_file.exists()
+    assert tmr_file.exists()
+    svc_text = svc_file.read_text(encoding="utf-8")
+    assert "NoNewPrivileges=yes" in svc_text
+    assert "ProtectSystem=strict" in svc_text
+    assert "homeagentp_core.modules.nas.host_producer" in svc_text
 
 
 def test_nas_guardian_api_collection_alerts_and_retention(tmp_path: Path) -> None:

@@ -1,0 +1,31 @@
+# HomeAgentP B+ — Sample Least-Privilege Host Telemetry Snapshot Service
+# Reference template only (NOT deployed automatically).
+# Writes nas_host_snapshot.json atomically into /var/lib/homeagentp/reports so
+# homeagentp-core can read verified NAS host metrics via a read-only (:ro) bind mount
+# without privileged mode, host network, or /var/run/docker.sock.
+
+[Unit]
+Description=HomeAgentP B+ Read-Only NAS Host Telemetry Snapshot Producer
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=nobody
+Group=nogroup
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadOnlyPaths=/ /proc /mnt/disk1 /mnt/disk2
+ReadWritePaths=/var/lib/homeagentp/reports
+ExecStart=/opt/homeagentp/venv/bin/python -m homeagentp_core.modules.nas.host_producer \
+  --output /var/lib/homeagentp/reports/nas_host_snapshot.json \
+  --proc-root /proc \
+  --root-mount / \
+  --required-mounts /mnt/disk1,/mnt/disk2 \
+  --ttl-seconds 120
