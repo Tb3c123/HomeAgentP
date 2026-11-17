@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -16,7 +17,18 @@ from homeagentp_core.modules.media.errors import (
     MediaSecurityError,
     MediaTimeoutError,
 )
-from homeagentp_core.modules.media.security import validate_service_url
+from homeagentp_core.modules.media.security import (
+    validate_resolved_dns,
+    validate_service_url,
+)
+
+
+def _matches_segment_prefix(path: str, prefix: str) -> bool:
+    """Match an API path against an allowlisted prefix on exact or '/' segment boundaries."""
+    clean_prefix = prefix.rstrip("/")
+    if not clean_prefix:
+        return path == "/"
+    return path == clean_prefix or path.startswith(f"{clean_prefix}/")
 
 
 class SafeMediaHttpClient:
@@ -35,6 +47,7 @@ class SafeMediaHttpClient:
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self.base_url = validate_service_url(base_url, allowed_hosts)
+        self._hostname = (urlsplit(self.base_url).hostname or "").strip().lower()
         self._timeout_seconds = timeout_seconds
         self._max_response_bytes = max_response_bytes
         self._allowed_get_prefixes = allowed_get_prefixes
@@ -49,14 +62,25 @@ class SafeMediaHttpClient:
 
     def _verify_path(self, method: str, path: str) -> None:
         upper_method = method.upper()
-        if not path.startswith("/") or ".." in path or "\\" in path:
+        lower_path = path.lower()
+        if (
+            not path.startswith("/")
+            or ".." in path
+            or "\\" in path
+            or "?" in path
+            or "#" in path
+            or any(ctrl in path for ctrl in ("\r", "\n", "\x00"))
+            or "%2e" in lower_path
+            or "%2f" in lower_path
+            or "%5c" in lower_path
+        ):
             raise MediaSecurityError(
                 "invalid_path",
                 f"Disallowed relative API path '{path}'.",
             )
         if upper_method == "GET":
             if not any(
-                path == prefix or path.startswith(prefix)
+                _matches_segment_prefix(path, prefix)
                 for prefix in self._allowed_get_prefixes
             ):
                 raise MediaSecurityError(
@@ -87,6 +111,8 @@ class SafeMediaHttpClient:
     ) -> tuple[int, bytes, httpx.Headers, dict[str, str]]:
         """Execute a validated HTTP request with redirect blocking and streaming byte caps."""
         self._verify_path(method, path)
+        if self._transport is None:
+            validate_resolved_dns(self._hostname)
         target_url = f"{self.base_url}{path}"
         merged_headers = {**self._headers, **(extra_headers or {})}
 
@@ -105,7 +131,7 @@ class SafeMediaHttpClient:
                     data=form_data,
                 ) as response:
                     status_code = response.status_code
-                    if status_code in {301, 302, 303, 307, 308}:
+                    if 300 <= status_code < 400 and status_code != 304:
                         raise MediaSecurityError(
                             "redirect_blocked",
                             f"HTTP redirect ({status_code}) from '{path}' is blocked by "
@@ -115,6 +141,20 @@ class SafeMediaHttpClient:
                         raise MediaAuthError(
                             f"Authentication rejected by service (HTTP {status_code}) on '{path}'."
                         )
+
+                    content_length_raw = response.headers.get("content-length")
+                    if content_length_raw is not None:
+                        try:
+                            declared_length = int(content_length_raw)
+                        except ValueError:
+                            declared_length = -1
+                        if declared_length > self._max_response_bytes:
+                            raise MediaMalformedResponseError(
+                                f"Response from '{path}' declared Content-Length "
+                                f"({declared_length} bytes) exceeding maximum allowed size "
+                                f"({self._max_response_bytes} bytes).",
+                                error_code="response_too_large",
+                            )
 
                     chunks: list[bytes] = []
                     total_read = 0

@@ -967,3 +967,101 @@ def test_jellyfin_connector_backward_compatible_import_and_metrics(tmp_path: Pat
     assert snap["metrics"]["playback_errors"]["count"] == 1
 
 
+def test_r03_security_hardening_regressions(monkeypatch: pytest.MonkeyPatch) -> None:
+    """R03: Verify segment-safe paths, IPv4-mapped IPv6, DNS SSRF, redirects, Content-Length."""
+    import socket
+
+    from homeagentp_core.modules.media import base as legacy_base
+    from homeagentp_core.modules.media.adapter_base import MediaServiceAdapter
+    from homeagentp_core.modules.media.errors import (
+        MediaMalformedResponseError,
+        MediaSecurityError,
+    )
+    from homeagentp_core.modules.media.http_client import SafeMediaHttpClient
+    from homeagentp_core.modules.media.security import (
+        validate_resolved_dns,
+        validate_service_url,
+    )
+
+    assert legacy_base.SafeMediaHttpClient is SafeMediaHttpClient
+    assert legacy_base.MediaServiceAdapter is MediaServiceAdapter
+    assert legacy_base.MediaSecurityError is MediaSecurityError
+    assert legacy_base.validate_service_url is validate_service_url
+
+    # 1. Segment-safe GET prefix matching & encoded traversal blocking
+    client = SafeMediaHttpClient(
+        base_url="http://jellyfin.local:8096",
+        allowed_hosts=["jellyfin.local"],
+        timeout_seconds=2.0,
+        max_response_bytes=1024,
+        allowed_get_prefixes=("/Sessions",),
+        transport=httpx.MockTransport(lambda req: httpx.Response(200, json=[])),
+    )
+    assert client.get_json("/Sessions") == []
+    assert client.get_json("/Sessions/active") == []
+
+    for bad_path in (
+        "/SessionsEvil",
+        "/Sessions/%2e%2e/Users",
+        "/Sessions?admin=1",
+        "/Sessions#frag",
+        "/Sessions\r\nX-Injected: 1",
+    ):
+        with pytest.raises(MediaSecurityError):
+            client.get_json(bad_path)
+
+    # 2. IPv4-mapped IPv6 SSRF rejection even if listed in allowed_hosts
+    for mapped in (
+        "http://[::ffff:169.254.169.254]:8096",
+        "http://[::ffff:0.0.0.0]:8096",
+    ):
+        with pytest.raises(MediaSecurityError) as exc_info:
+            validate_service_url(mapped, ["::ffff:169.254.169.254", "::ffff:0.0.0.0"])
+        assert exc_info.value.error_code == "ssrf_blocked"
+
+    # 3. DNS resolution returning cloud metadata IP is blocked
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda host, port, **kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 0))
+        ],
+    )
+    with pytest.raises(MediaSecurityError) as dns_exc:
+        validate_resolved_dns("rebind.local")
+    assert dns_exc.value.error_code == "ssrf_blocked"
+
+    # 4. 300/307/308 redirects are blocked
+    for code in (300, 307, 308):
+        redir_client = SafeMediaHttpClient(
+            base_url="http://jellyfin.local:8096",
+            allowed_hosts=["jellyfin.local"],
+            timeout_seconds=2.0,
+            max_response_bytes=1024,
+            allowed_get_prefixes=("/System/Info",),
+            transport=httpx.MockTransport(
+                lambda req, status=code: httpx.Response(
+                    status, headers={"Location": "http://169.254.169.254/"}
+                )
+            ),
+        )
+        with pytest.raises(MediaSecurityError) as redir_exc:
+            redir_client.get_json("/System/Info")
+        assert redir_exc.value.error_code == "redirect_blocked"
+
+    # 5. Early Content-Length header rejection before buffering body
+    oversize_client = SafeMediaHttpClient(
+        base_url="http://jellyfin.local:8096",
+        allowed_hosts=["jellyfin.local"],
+        timeout_seconds=2.0,
+        max_response_bytes=512,
+        allowed_get_prefixes=("/System/Info",),
+        transport=httpx.MockTransport(
+            lambda req: httpx.Response(200, headers={"Content-Length": "4096"}, content=b"{}")
+        ),
+    )
+    with pytest.raises(MediaMalformedResponseError) as size_exc:
+        oversize_client.get_json("/System/Info")
+    assert size_exc.value.error_code == "response_too_large"
+
+
