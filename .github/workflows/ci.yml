@@ -133,6 +133,69 @@ jobs:
             sleep 1
           done
           test "$ready" = true
+      - name: Smoke test authenticated Phase 04 Workspace API
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import http.cookiejar, json, os, urllib.request
+
+          base = "http://127.0.0.1:18310"
+          opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+
+          def req(method, path, payload=None, csrf=None):
+              data = json.dumps(payload).encode("utf-8") if payload is not None else None
+              headers = {"Content-Type": "application/json"} if data is not None else {}
+              if csrf:
+                  headers["X-CSRF-Token"] = csrf
+              r = urllib.request.Request(f"{base}{path}", data=data, headers=headers, method=method)
+              with opener.open(r, timeout=10) as resp:
+                  assert 200 <= resp.status < 300, (method, path, resp.status)
+                  return json.loads(resp.read().decode("utf-8"))
+
+          me = req("POST", "/api/v1/auth/login", {
+              "username": os.environ.get("HOMEAGENTP_ADMIN_USERNAME", "admin"),
+              "password": os.environ["HOMEAGENTP_ADMIN_PASSWORD"],
+          })
+          csrf = me["csrf_token"]
+
+          task = req("POST", "/api/v1/tasks", {"title": "Staging Smoke Task", "category": "ai_workspace"}, csrf=csrf)
+          brief = req("POST", f"/api/v1/workspace/tasks/{task['id']}/briefs", {
+              "purpose": "Staging smoke brief",
+              "human_status": "ready_for_handoff",
+              "expected_latest_version": 0,
+          }, csrf=csrf)
+          assert brief["version"] == 1
+
+          exported = req("GET", f"/api/v1/workspace/tasks/{task['id']}/briefs/1/export")
+          assert exported["handoff_mode"] == "manual_copy_only"
+          assert "Staging smoke brief" in exported["rendered_text"]
+
+          art = req("POST", "/api/v1/workspace/artifacts", {
+              "slug": "staging-smoke-artifact",
+              "version": "1.0.0",
+              "title": "Staging Smoke Artifact",
+              "kind": "plan",
+              "source_type": "note",
+              "summary": "Isolated staging smoke test",
+              "tags": ["staging", "phase-04"],
+          }, csrf=csrf)
+          assert art["revision"] == 1
+
+          listed = req("GET", "/api/v1/workspace/artifacts?limit=20&offset=0")
+          assert any(item["slug"] == "staging-smoke-artifact" for item in listed)
+
+          prov = req("POST", "/api/v1/workspace/provenance", {
+              "entity_type": "task",
+              "entity_id": task["id"],
+              "repo_url": "https://github.com/Tb3c123/HomeAgentP",
+              "branch": "feature/phase-04-workspace-artifacts",
+              "review_status": "pending",
+              "ci_status": "unknown",
+          }, csrf=csrf)
+          assert prov["verification_source"] == "manual_unverified"
+          print("Phase 04 Workspace API staging smoke test passed.")
+          PY
       - name: Show staging diagnostics on failure
         if: failure()
         run: |
