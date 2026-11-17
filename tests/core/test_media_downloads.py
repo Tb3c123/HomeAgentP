@@ -1283,3 +1283,69 @@ def test_r05_media_scheduler_hardened_worker_timeout_shutdown_and_restart(
     asyncio.run(_exercise())
 
 
+def test_r03_pinned_transport_fails_closed_on_incompatible_internals(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify _build_pinned_transport fails closed if httpx/httpcore internals are incompatible."""
+    import httpcore
+
+    from homeagentp_core.modules.media import http_client as hc
+    from homeagentp_core.modules.media.errors import MediaSecurityError
+
+    # 1. Unsupported _pool type (not httpcore.ConnectionPool)
+    class _UnsupportedTransport:
+        def __init__(self, **kwargs: object) -> None:
+            self._pool = object()
+
+    monkeypatch.setattr(httpx, "HTTPTransport", _UnsupportedTransport)
+    with pytest.raises(MediaSecurityError) as pool_exc:
+        hc._build_pinned_transport()
+    assert pool_exc.value.error_code == "ssrf_pinning_unavailable"
+
+    # 2. ConnectionPool missing _network_backend attribute
+    class _FakePoolNoBackend(httpcore.ConnectionPool):
+        def __init__(self) -> None:
+            pass
+
+    class _NoBackendTransport:
+        def __init__(self, **kwargs: object) -> None:
+            self._pool = _FakePoolNoBackend()
+
+    monkeypatch.setattr(httpx, "HTTPTransport", _NoBackendTransport)
+    with pytest.raises(MediaSecurityError) as nb_exc:
+        hc._build_pinned_transport()
+    assert nb_exc.value.error_code == "ssrf_pinning_unavailable"
+
+    # 3. Pinning assignment silently ignored (property/descriptor refuses override)
+    class _ReadOnlyPool(httpcore.ConnectionPool):
+        def __init__(self) -> None:
+            self._orig = object()
+
+        @property
+        def _network_backend(self) -> object:
+            return self._orig
+
+        @_network_backend.setter
+        def _network_backend(self, value: object) -> None:
+            pass
+
+    class _ReadOnlyTransport:
+        def __init__(self, **kwargs: object) -> None:
+            self._pool = _ReadOnlyPool()
+
+    monkeypatch.setattr(httpx, "HTTPTransport", _ReadOnlyTransport)
+    with pytest.raises(MediaSecurityError) as ro_exc:
+        hc._build_pinned_transport()
+    assert ro_exc.value.error_code == "ssrf_pinning_unavailable"
+
+    # 4. Dependency incompatibility (SafeDnsPinningBackend raises TypeError)
+    monkeypatch.setattr(
+        hc,
+        "SafeDnsPinningBackend",
+        lambda: (_ for _ in ()).throw(TypeError("incompatible SyncBackend")),
+    )
+    with pytest.raises(MediaSecurityError) as dep_exc:
+        hc._build_pinned_transport()
+    assert dep_exc.value.error_code == "ssrf_pinning_unavailable"
+
+

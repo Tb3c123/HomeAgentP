@@ -1,4 +1,11 @@
-"""SSRF-hardened, read-only HTTP client for Media & Downloads connectors."""
+"""SSRF-hardened, read-only HTTP client for Media & Downloads connectors.
+
+Dependency Compatibility:
+- Tested against `httpx>=0.27.0,<0.29.0` and `httpcore>=1.0.0,<2.0.0`.
+- `_build_pinned_transport()` explicitly verifies `httpx.HTTPTransport._pool` is an
+  `httpcore.ConnectionPool` with `_network_backend` and fails closed with
+  `MediaSecurityError("ssrf_pinning_unavailable", ...)` if internals change.
+"""
 
 from __future__ import annotations
 
@@ -56,12 +63,37 @@ class SafeDnsPinningBackend(SyncBackend):
 
 
 def _build_pinned_transport() -> httpx.HTTPTransport:
-    """Build an httpx.HTTPTransport using SafeDnsPinningBackend and ignoring env proxies."""
-    transport = httpx.HTTPTransport(trust_env=False)
-    pool = getattr(transport, "_pool", None)
-    if isinstance(pool, httpcore.ConnectionPool):
-        pool._network_backend = SafeDnsPinningBackend()
-    return transport
+    """Build an httpx.HTTPTransport with SafeDnsPinningBackend, failing closed if unsupported."""
+    try:
+        transport = httpx.HTTPTransport(trust_env=False)
+        pool = getattr(transport, "_pool", None)
+        if not isinstance(pool, httpcore.ConnectionPool):
+            raise MediaSecurityError(
+                "ssrf_pinning_unavailable",
+                "Cannot enforce DNS pinning: unsupported httpx/httpcore ConnectionPool internals.",
+            )
+        if not hasattr(pool, "_network_backend"):
+            raise MediaSecurityError(
+                "ssrf_pinning_unavailable",
+                "Cannot enforce DNS pinning: ConnectionPool missing '_network_backend' attribute.",
+            )
+        backend = SafeDnsPinningBackend()
+        pool._network_backend = backend
+        installed = getattr(pool, "_network_backend", None)
+        if installed is not backend or not isinstance(installed, SafeDnsPinningBackend):
+            raise MediaSecurityError(
+                "ssrf_pinning_unavailable",
+                "Cannot enforce DNS pinning: failed to verify installed network backend.",
+            )
+        return transport
+    except MediaSecurityError:
+        raise
+    except Exception as exc:
+        raise MediaSecurityError(
+            "ssrf_pinning_unavailable",
+            "Cannot enforce DNS pinning due to HTTP transport incompatibility: "
+            f"{type(exc).__name__}.",
+        ) from exc
 
 
 class SafeMediaHttpClient:
