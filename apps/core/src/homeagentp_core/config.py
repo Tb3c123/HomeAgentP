@@ -157,6 +157,7 @@ class Settings(BaseSettings):
     )
     ha_allowed_entities: list[str] = Field(default_factory=list)
     ha_http_timeout_seconds: float = Field(default=5.0, ge=0.5, le=30.0)
+    ha_collection_interval_seconds: int = Field(default=60, ge=15, le=3600)
     ha_collection_timeout_seconds: float = Field(default=15.0, ge=1.0, le=120.0)
     ha_max_response_bytes: int = Field(default=524_288, ge=4096, le=4_194_304)
     ha_min_persist_interval_seconds: int = Field(default=30, ge=0, le=3600)
@@ -166,6 +167,10 @@ class Settings(BaseSettings):
     telegram_enabled: bool = False
     telegram_bot_token: str = ""
     telegram_allowed_chat_ids: list[str] = Field(default_factory=list)
+    telegram_http_timeout_seconds: float = Field(default=5.0, ge=0.5, le=30.0)
+    notification_scheduler_enabled: bool = False
+    notification_poll_interval_seconds: int = Field(default=30, ge=5, le=3600)
+    notification_cycle_timeout_seconds: float = Field(default=15.0, ge=1.0, le=120.0)
     notification_outbox_max_active: int = Field(default=100, ge=10, le=1000)
     notification_history_retention_limit: int = Field(default=500, ge=20, le=5000)
     notification_lease_seconds: int = Field(default=60, ge=5, le=600)
