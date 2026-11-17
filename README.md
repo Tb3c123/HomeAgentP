@@ -28,3 +28,32 @@ HomeAgentP is a personal AI workspace and home NAS operations platform.
 ## Status
 
 Planning and documentation only. No HomeAgentP application has been deployed.
+
+
+## Start here — Antigravity / external implementer (Tiếng Việt)
+
+**Không giao lệnh “cài tất cả HomeAgentP lên NAS” ngay trong prompt đầu tiên.** Repo hiện là baseline tài liệu, chưa có Web/Core source hoặc Docker Compose đã được kiểm thử.
+
+1. Đọc [Product scope](docs/00-project-scope.md): HomeAgentP bao gồm NAS, media, downloads, Home Assistant, alerts, AI workspace, developer, security; **không chỉ Dev**.
+2. Đọc [AGENTS.md](AGENTS.md): các giới hạn mà AI coding agent và nhà thầu phải tuân thủ.
+3. Đọc [Antigravity handoff & ready-to-copy prompts](docs/ANTIGRAVITY_HANDOFF.md): cách kết nối GitHub bằng Antigravity chính thức, quy trình giao việc, PR và deployment authorization.
+4. Thực hiện [Phase 01 — Foundation](docs/plans/01-foundation.md) đầu tiên: Web/Core skeleton, auth, tasks, SQLite, script viewer, kiểm thử local. Không động tới NAS.
+5. Mỗi Phase bắt buộc có Git branch/PR, evidence thực tế và owner review. Merge code không tự cấp quyền triển khai.
+6. Chỉ sau khi Phase 01 đã được kiểm thử và review, xin **phê duyệt triển khai NAS riêng** với commands, ports, volumes, secrets, backup và rollback.
+
+### Một prompt mở đầu ngắn cho Antigravity Remote Agent
+
+```text
+Hãy mở repository Tb3c123/HomeAgentP bằng Antigravity chính thức.
+Đọc README.md, AGENTS.md, docs/00-project-scope.md,
+docs/ANTIGRAVITY_HANDOFF.md và docs/plans/01-foundation.md.
+Chỉ phân tích và lập implementation plan cho Phase 01.
+Không thay đổi NAS, không deploy, không truy cập Docker Socket hay credentials,
+không dùng Antigravity consumer CLI làm backend của HomeAgentP.
+Trình bày danh sách file, API, schema, test cases, security risks,
+sau đó dừng chờ tôi duyệt trước khi viết code.
+```
+
+**Alternative:** Google Antigravity Remote Control cho phép người dùng trực tiếp vận hành phiên CLI chính thức trên máy đang chạy; không đồng nghĩa HomeAgentP được gọi `agy` thay người dùng. Tham khảo [Remote Control](https://antigravity.google/docs/remote-control/) và [Remote Agents](https://antigravity.google/docs/remote-agents/).
+
+**Safety notice:** NAS đang có container terminal Antigravity cũ dùng root và Docker Socket RW, với port ttyd rộng. Không dùng container đó để chạy AI-generated deployment scripts cho đến khi security review và hardening được hoàn tất. Không lưu credentials trong repo.
