@@ -96,7 +96,7 @@ All Phase 05 tables are additive and leave `001`–`004` tables untouched:
 3. **`notification_preferences`**:
    - `id INTEGER PRIMARY KEY CHECK (id = 1)`, `telegram_enabled INTEGER NOT NULL DEFAULT 0`, `min_severity TEXT NOT NULL CHECK (min_severity IN ('warning', 'critical')) DEFAULT 'warning'`, `notify_on_resolve INTEGER NOT NULL DEFAULT 1`, `cooldown_seconds INTEGER NOT NULL DEFAULT 900`, `rate_limit_count INTEGER NOT NULL DEFAULT 10`, `rate_limit_window_seconds INTEGER NOT NULL DEFAULT 300`, `updated_by TEXT NOT NULL`, `updated_at TEXT NOT NULL`. *(Contains zero secrets or tokens.)*
 4. **`notification_deliveries`**:
-   - `id INTEGER PRIMARY KEY AUTOINCREMENT`, `incident_key TEXT NOT NULL`, `source_domain TEXT NOT NULL CHECK (source_domain IN ('nas', 'media', 'home_assistant', 'system'))`, `severity TEXT NOT NULL CHECK (severity IN ('info', 'warning', 'critical'))`, `channel TEXT NOT NULL CHECK (channel IN ('telegram'))`, `destination_masked TEXT NOT NULL`, `message_redacted TEXT NOT NULL`, `status TEXT NOT NULL CHECK (status IN ('pending', 'sent', 'suppressed_cooldown', 'suppressed_rate_limit', 'failed', 'dead_letter'))`, `attempt_count INTEGER NOT NULL DEFAULT 0`, `next_attempt_at TEXT`, `last_error_redacted TEXT NOT NULL DEFAULT ''`, `created_at TEXT NOT NULL`, `sent_at TEXT`. Bounded retention (latest 500 rows).
+   - `id INTEGER PRIMARY KEY AUTOINCREMENT`, `incident_key TEXT NOT NULL`, `source_domain TEXT NOT NULL CHECK (source_domain IN ('nas', 'media', 'home_assistant', 'system'))`, `severity TEXT NOT NULL CHECK (severity IN ('info', 'warning', 'critical'))`, `channel TEXT NOT NULL CHECK (channel IN ('telegram'))`, `destination_masked TEXT NOT NULL`, `message_redacted TEXT NOT NULL`, `status TEXT NOT NULL CHECK (status IN ('pending', 'in_flight', 'sent', 'suppressed_cooldown', 'suppressed_rate_limit', 'suppressed_overflow', 'failed', 'dead_letter'))`, `claimed_by TEXT NOT NULL DEFAULT ''`, `lease_expires_at TEXT`, `attempt_count INTEGER NOT NULL DEFAULT 0`, `next_attempt_at TEXT`, `last_error_redacted TEXT NOT NULL DEFAULT ''`, `created_at TEXT NOT NULL`, `sent_at TEXT`. Bounded retention (latest 500 terminal rows; `pending` and `in_flight` rows are never pruned).
 
 ---
 
@@ -146,3 +146,30 @@ All Phase 05 tables are additive and leave `001`–`004` tables untouched:
 3. **Telegram Destination Chat IDs**: Confirm the exact `HOMEAGENTP_TELEGRAM_ALLOWED_CHAT_IDS` and confirm outbound-only notifications (no interactive bot commands) is the desired Phase 05 scope.
 4. **Cooldown & Severity Defaults**: Confirm default `min_severity="warning"`, `cooldown_seconds=900`, `rate_limit=10/300s`, and `notify_on_resolve=true`.
 5. **Live Connection Gate**: Implementation of Gates A–C will use **mock HTTP transports and dummy credentials only**; a separate explicit owner authorization will be required before connecting to live Home Assistant, sending any real Telegram message, or deploying to the NAS.
+
+---
+
+## 10. Gate 0 Finalized Security & Reliability Decisions
+
+### 10.1 Shared Network Isolation & DNS Pinning
+- Extract `SafeDnsPinningBackend`, `resolve_and_validate_host`, `_validate_ip_object`, and `_build_pinned_transport` into a shared core module (`homeagentp_core.net.safe_http`), preserving full backward-compatible re-exports in `modules/media/security.py` and `modules/media/http_client.py`.
+- **Home Assistant**: Only explicitly allowlisted hosts in `HOMEAGENTP_HA_ALLOWED_HOSTS` are permitted (`http` or `https`). Unspecified (`0.0.0.0`, `::`), multicast, link-local / cloud metadata (`169.254.0.0/16`, `fe80::/10`), and IPv4-mapped IPv6 bypasses (`::ffff:169.254.169.254`) are rejected; `follow_redirects=False`; HTTPS SNI and fail-closed `httpx`/`httpcore` compatibility checks are preserved.
+- **Telegram**: Strictly `https://api.telegram.org` **public IPs only** (`require_public_ip=True`), rejecting private (`RFC1918`/`fc00::/7`), loopback (`127.0.0.0/8`, `::1`), link-local/metadata, multicast, unspecified, and IPv4-mapped IPv6 targets, with `follow_redirects=False`.
+
+### 10.2 Telegram Token Secrecy
+- Complete Telegram Bot API URLs (`https://api.telegram.org/bot<TOKEN>/sendMessage`) are **never** logged, included in exceptions, persisted in SQLite, or returned in API/UI responses.
+- `redact_text()` in `logging.py` scrubs `bot\d+:[A-Za-z0-9_-]{20,}` -> `bot[REDACTED]` in addition to `token=`/`Bearer` patterns.
+- All Telegram client diagnostics use structured redacted error codes without echoing URLs or tokens; regression tests verify URL-based token leakage is scrubbed.
+
+### 10.3 Durable Notification Outbox & At-Least-Once Semantics
+- **Incident identity & duplicate suppression**: Deterministic `incident_key = "{source_domain}:{alert_key}:{event_type}"`. Within `BEGIN IMMEDIATE` transaction, enqueue checks whether a `pending`, `in_flight`, or `sent` row with the same `incident_key` exists within `cooldown_seconds`; if so, records `suppressed_cooldown` (or skips duplicate pending enqueue) without creating duplicate sends.
+- **Atomic delivery claim & lease recovery**: Workers claim the next eligible row (`status IN ('pending', 'failed')` and `next_attempt_at <= now`) atomically via `UPDATE ... SET status = 'in_flight', claimed_by = ?, lease_expires_at = ? WHERE id = (SELECT id ... ORDER BY severity_rank, id ASC LIMIT 1) RETURNING *`. Expired leases (`status = 'in_flight' AND lease_expires_at < now`) are reclaimed back to `failed` (or `dead_letter` if `attempt_count >= max_attempts`) before claiming.
+- **At-least-once limitation**: Because Telegram `sendMessage` is an external side effect without two-phase commit, ambiguous network failures (e.g., timeout after Telegram accepted the request) or worker crashes between HTTP response and SQLite commit can result in a duplicate message upon retry or lease recovery.
+- **Bounded queue & overflow policy**: Active queue (`status IN ('pending', 'in_flight')`) is capped at `100` rows. On overflow, lower-priority `pending` rows (`info`, then `warning`) are marked `suppressed_overflow` to make room for `critical` alerts; if the queue cannot accept a new non-critical alert, the new alert is recorded as `suppressed_overflow`.
+- **Retention safety**: Ordinary retention pruning (`max 500` rows) **only** deletes terminal rows (`sent`, `suppressed_*`, `dead_letter`) and **never** deletes `pending` or `in_flight` rows.
+
+### 10.4 Home Assistant Data Minimization
+- Raw full HA `/api/states` payloads are **never** persisted.
+- Only allowlisted scalar attributes (`unit_of_measurement`, `device_class`, `friendly_name`, `state_class`, `icon`) are extracted (max 8 keys, scalar values truncated to 128 chars, serialized `attributes_json` capped at `1024` bytes; `state` capped at `128` chars).
+- HTTP responses are capped at `524_288` bytes (`ha_max_response_bytes`), staleness threshold defaults to `300s` (`ha_snapshot_stale_seconds`), write throttling defaults to `30s` (`ha_min_persist_interval_seconds`), and snapshot history is bounded to `200` rows (`ha_history_retention_limit`).
+
