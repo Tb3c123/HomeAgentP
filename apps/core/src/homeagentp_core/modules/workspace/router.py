@@ -22,9 +22,18 @@ from homeagentp_core.modules.workspace.briefs import (
     export_task_brief,
     list_task_briefs,
 )
+from homeagentp_core.modules.workspace.provenance import (
+    create_provenance_link,
+    list_provenance_links,
+    update_provenance_link,
+)
 from homeagentp_core.modules.workspace.schemas import (
     ArtifactKind,
     ArtifactSourceType,
+    GitProvenanceCreate,
+    GitProvenanceOut,
+    GitProvenanceUpdate,
+    ProvenanceEntityType,
     TaskBriefCreate,
     TaskBriefExportOut,
     TaskBriefOut,
@@ -160,4 +169,63 @@ def get_workspace_artifact_detail_endpoint(
             slug=slug,
             revision=revision,
             version=version,
+        )
+
+
+@router.get("/provenance", response_model=list[GitProvenanceOut])
+def list_provenance_endpoint(
+    entity_type: ProvenanceEntityType | None = Query(default=None),
+    entity_id: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10000),
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
+    settings: Settings = Depends(get_settings),
+) -> list[GitProvenanceOut]:
+    with db_session(settings.db_path) as conn:
+        return list_provenance_links(
+            conn,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            limit=limit,
+            offset=offset,
+        )
+
+
+@router.post(
+    "/provenance",
+    response_model=GitProvenanceOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_provenance_endpoint(
+    payload: GitProvenanceCreate,
+    request: Request,
+    principal: AuthenticatedPrincipal = Depends(require_workspace_owner),
+    settings: Settings = Depends(get_settings),
+) -> GitProvenanceOut:
+    client_ip = request.client.host if request.client else "unknown"
+    with db_session(settings.db_path) as conn:
+        return create_provenance_link(
+            conn,
+            payload=payload,
+            actor=principal.username,
+            ip_address=client_ip,
+        )
+
+
+@router.patch("/provenance/{link_id}", response_model=GitProvenanceOut)
+def update_provenance_endpoint(
+    link_id: int,
+    payload: GitProvenanceUpdate,
+    request: Request,
+    principal: AuthenticatedPrincipal = Depends(require_workspace_owner),
+    settings: Settings = Depends(get_settings),
+) -> GitProvenanceOut:
+    client_ip = request.client.host if request.client else "unknown"
+    with db_session(settings.db_path) as conn:
+        return update_provenance_link(
+            conn,
+            link_id=link_id,
+            payload=payload,
+            actor=principal.username,
+            ip_address=client_ip,
         )

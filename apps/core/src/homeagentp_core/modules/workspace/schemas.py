@@ -134,3 +134,46 @@ class WorkspaceArtifactDetailOut(WorkspaceArtifactOut):
     content: str | None = None
     size_bytes: int | None = None
     checksum_verified: bool = False
+
+
+ProvenanceEntityType = Literal["task", "artifact"]
+ProvenanceReviewStatus = Literal["none", "pending", "approved", "changes_requested"]
+ProvenanceCiStatus = Literal["unknown", "pending", "success", "failure"]
+VerificationSource = Literal["manual_unverified", "external_ci_verified"]
+
+
+class GitProvenanceCreate(BaseModel):
+    entity_type: ProvenanceEntityType
+    entity_id: int = Field(..., ge=1)
+    repo_url: str = Field(..., min_length=19, max_length=255)
+    branch: str = Field(default="", max_length=120)
+    commit_sha: str = Field(default="", max_length=40, pattern=r"^$|^[0-9a-fA-F]{7,40}$")
+    pr_url: str = Field(default="", max_length=255)
+    review_status: ProvenanceReviewStatus = "none"
+    ci_status: ProvenanceCiStatus = "unknown"
+    ci_url: str = Field(default="", max_length=255)
+
+
+class GitProvenanceUpdate(BaseModel):
+    branch: str | None = Field(default=None, max_length=120)
+    commit_sha: str | None = Field(default=None, max_length=40, pattern=r"^$|^[0-9a-fA-F]{7,40}$")
+    pr_url: str | None = Field(default=None, max_length=255)
+    review_status: ProvenanceReviewStatus | None = None
+    ci_status: ProvenanceCiStatus | None = None
+    ci_url: str | None = Field(default=None, max_length=255)
+
+
+class GitProvenanceOut(BaseModel):
+    id: int
+    entity_type: ProvenanceEntityType
+    entity_id: int
+    repo_url: str
+    branch: str
+    commit_sha: str
+    pr_url: str
+    review_status: ProvenanceReviewStatus
+    ci_status: ProvenanceCiStatus
+    ci_url: str
+    verification_source: VerificationSource
+    created_at: str
+    updated_at: str
