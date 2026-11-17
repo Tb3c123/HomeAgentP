@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../api/client";
 import type {
   ArtifactFilterParams,
@@ -42,10 +42,11 @@ export function useWorkspaceData(user: AuthUser, tasks: TaskItem[]) {
     source_type: "",
     tag: "",
     q: "",
-    limit: 50,
+    limit: 20,
     offset: 0,
   });
   const [artifactBusy, setArtifactBusy] = useState(false);
+  const artifactRequestSeqRef = useRef(0);
 
   const [provenanceLinks, setProvenanceLinks] = useState<GitProvenanceItem[]>([]);
   const [provenanceBusy, setProvenanceBusy] = useState(false);
@@ -72,14 +73,21 @@ export function useWorkspaceData(user: AuthUser, tasks: TaskItem[]) {
   }, []);
 
   const loadArtifacts = useCallback(async (filters: ArtifactFilterParams) => {
+    const seq = ++artifactRequestSeqRef.current;
     setArtifactBusy(true);
     try {
       const items = await workspaceClient.listArtifacts(filters);
-      setArtifacts(items);
+      if (seq === artifactRequestSeqRef.current) {
+        setArtifacts(items);
+      }
     } catch (err) {
-      setWorkspaceError(toErrorMessage(err));
+      if (seq === artifactRequestSeqRef.current) {
+        setWorkspaceError(toErrorMessage(err));
+      }
     } finally {
-      setArtifactBusy(false);
+      if (seq === artifactRequestSeqRef.current) {
+        setArtifactBusy(false);
+      }
     }
   }, []);
 
@@ -171,13 +179,20 @@ export function useWorkspaceData(user: AuthUser, tasks: TaskItem[]) {
         payload,
         user.csrf_token,
       );
-      setArtifacts((prev) => [created, ...prev]);
       setWorkspaceNotice(
         `Registered artifact "${created.slug}" rev ${created.revision}.`,
       );
+      await loadArtifacts(artifactFilters);
       return true;
     } catch (err) {
-      setWorkspaceError(toErrorMessage(err));
+      if (err instanceof ApiError && err.status === 409) {
+        setWorkspaceError(
+          `${err.message} Refreshed artifact list — please review latest revision and retry.`,
+        );
+        await loadArtifacts(artifactFilters);
+      } else {
+        setWorkspaceError(toErrorMessage(err));
+      }
       return false;
     } finally {
       setArtifactBusy(false);

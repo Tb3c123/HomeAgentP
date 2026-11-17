@@ -194,4 +194,103 @@ describe("Phase 04 WorkspaceSection (Task Briefs, Artifacts & Git Provenance)", 
       "Forbidden: owner role required",
     );
   });
+
+  it("supports artifact pagination, resets offset on filter change, and ignores stale responses", async () => {
+    const page1 = Array.from({ length: 20 }, (_, idx) => ({
+      ...mockWorkspaceArtifacts[0],
+      id: idx + 1,
+      slug: `artifact-${idx + 1}`,
+      title: `Artifact ${idx + 1}`,
+    }));
+    const page2 = [
+      {
+        ...mockWorkspaceArtifacts[0],
+        id: 21,
+        slug: "artifact-21",
+        title: "Artifact 21",
+      },
+    ];
+
+    let resolveStale!: (value: typeof page1) => void;
+    const stalePromise = new Promise<typeof page1>((res) => {
+      resolveStale = res;
+    });
+
+    mockedWorkspace.listArtifacts
+      .mockResolvedValueOnce(page1)
+      .mockResolvedValueOnce(page2)
+      .mockReturnValueOnce(stalePromise)
+      .mockResolvedValueOnce([
+        {
+          ...mockWorkspaceArtifacts[0],
+          id: 99,
+          slug: "fresh-filtered",
+          title: "Fresh Filtered Artifact",
+        },
+      ]);
+
+    render(<WorkspaceSection user={mockAuthUser} tasks={mockTasks} />);
+    await screen.findByText("Artifact 1");
+
+    const prevBtn = screen.getByRole("button", { name: "Previous" });
+    const nextBtn = screen.getByRole("button", { name: "Next" });
+    expect(prevBtn).toBeDisabled();
+    expect(nextBtn).toBeEnabled();
+
+    fireEvent.click(nextBtn);
+    await screen.findByText("Artifact 21");
+    expect(prevBtn).toBeEnabled();
+    expect(nextBtn).toBeDisabled();
+
+    // Trigger filter 1 (slow) then filter 2 (fast) -> offset resets to 0 and stale response is ignored
+    fireEvent.change(screen.getByLabelText("Filter artifact tag"), {
+      target: { value: "slow" },
+    });
+    fireEvent.change(screen.getByLabelText("Filter artifact tag"), {
+      target: { value: "fast" },
+    });
+
+    await screen.findByText("Fresh Filtered Artifact");
+    resolveStale(page1);
+    await waitFor(() => {
+      expect(screen.getByText("Fresh Filtered Artifact")).toBeInTheDocument();
+      expect(screen.queryByText("Artifact 1")).not.toBeInTheDocument();
+    });
+    expect(mockedWorkspace.listArtifacts).toHaveBeenLastCalledWith(
+      expect.objectContaining({ tag: "fast", offset: 0, limit: 20 }),
+    );
+  });
+
+  it("prepares next artifact revision and handles 409 conflicts with refresh guidance", async () => {
+    mockedWorkspace.createArtifact.mockRejectedValueOnce(
+      new ApiError(409, "Revision conflict: expected latest revision 1, found 2."),
+    );
+
+    render(<WorkspaceSection user={mockAuthUser} tasks={mockTasks} />);
+    await screen.findByText("Phase 04 Workspace Plan");
+
+    fireEvent.click(screen.getByRole("button", { name: "New Revision" }));
+    expect(screen.getByText(/Preparing next revision for/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Artifact slug")).toHaveValue("phase-04-plan");
+
+    fireEvent.change(screen.getByLabelText("Artifact version"), {
+      target: { value: "1.1.0" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Publish New Revision" }));
+
+    await waitFor(() => {
+      expect(mockedWorkspace.createArtifact).toHaveBeenCalledWith(
+        expect.objectContaining({
+          slug: "phase-04-plan",
+          version: "1.1.0",
+          expected_latest_revision: 1,
+        }),
+        mockAuthUser.csrf_token,
+      );
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /Refreshed artifact list — please review latest revision and retry\./,
+    );
+  });
 });

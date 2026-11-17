@@ -38,6 +38,41 @@ export function ArtifactsKnowledgePanel({
   const [gitUrl, setGitUrl] = useState("");
   const [summary, setSummary] = useState("");
   const [tagsText, setTagsText] = useState("");
+  const [expectedLatestRevision, setExpectedLatestRevision] = useState<number | null>(
+    null,
+  );
+
+  const limit = filters.limit ?? 20;
+  const offset = filters.offset ?? 0;
+  const currentPage = Math.floor(offset / limit) + 1;
+  const hasPrevious = offset > 0;
+  const hasNext = artifacts.length >= limit;
+
+  const resetForm = () => {
+    setSlug("");
+    setVersion("1.0.0");
+    setTitle("");
+    setKind("artifact");
+    setSourceType("note");
+    setRelPath("");
+    setGitUrl("");
+    setSummary("");
+    setTagsText("");
+    setExpectedLatestRevision(null);
+  };
+
+  const handlePrepareRevision = (art: WorkspaceArtifactItem) => {
+    setSlug(art.slug);
+    setVersion("");
+    setTitle(art.title);
+    setKind(art.kind);
+    setSourceType(art.source_type);
+    setRelPath(art.rel_path);
+    setGitUrl(art.git_url);
+    setSummary(art.summary);
+    setTagsText(art.tags.join(", "));
+    setExpectedLatestRevision(art.revision);
+  };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,14 +90,12 @@ export function ArtifactsKnowledgePanel({
       git_url: gitUrl,
       summary,
       tags,
+      ...(expectedLatestRevision !== null
+        ? { expected_latest_revision: expectedLatestRevision }
+        : {}),
     });
     if (ok) {
-      setSlug("");
-      setTitle("");
-      setRelPath("");
-      setGitUrl("");
-      setSummary("");
-      setTagsText("");
+      resetForm();
     }
   };
 
@@ -71,7 +104,7 @@ export function ArtifactsKnowledgePanel({
       <div className="card-header">
         <h3 className="card-title">Artifacts &amp; Knowledge Index</h3>
         <span style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
-          {artifacts.length} item(s)
+          {artifacts.length} item(s) · Page {currentPage}
         </span>
       </div>
 
@@ -145,13 +178,38 @@ export function ArtifactsKnowledgePanel({
 
       {isOwner && (
         <form onSubmit={handleRegister} style={{ marginBottom: "1rem" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 110px 1fr", gap: "0.5rem" }}>
+          {expectedLatestRevision !== null && (
+            <div
+              className="banner-notice"
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "0.5rem",
+              }}
+            >
+              <span>
+                Preparing next revision for <strong>{slug}</strong> (expected latest
+                revision: {expectedLatestRevision})
+              </span>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={resetForm}
+              >
+                Cancel Revision
+              </button>
+            </div>
+          )}
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 140px 1fr", gap: "0.5rem" }}>
             <input
               aria-label="Artifact slug"
               className="input"
               value={slug}
               onChange={(e) => setSlug(e.target.value)}
               placeholder="slug (e.g. phase-04-plan)"
+              readOnly={expectedLatestRevision !== null}
               required
             />
             <input
@@ -159,7 +217,9 @@ export function ArtifactsKnowledgePanel({
               className="input"
               value={version}
               onChange={(e) => setVersion(e.target.value)}
-              placeholder="1.0.0"
+              placeholder={
+                expectedLatestRevision !== null ? "New unique version" : "1.0.0"
+              }
               required
             />
             <input
@@ -226,7 +286,11 @@ export function ArtifactsKnowledgePanel({
             />
           </div>
           <button type="submit" className="btn" disabled={busy} style={{ marginTop: "0.5rem" }}>
-            {busy ? "Registering..." : "Register Artifact"}
+            {busy
+              ? "Registering..."
+              : expectedLatestRevision !== null
+                ? "Publish New Revision"
+                : "Register Artifact"}
           </button>
         </form>
       )}
@@ -244,13 +308,24 @@ export function ArtifactsKnowledgePanel({
                     ({art.slug} · rev {art.revision} · v{art.version})
                   </span>
                 </div>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => onSelectArtifact(art.slug, art.revision)}
-                >
-                  Preview
-                </button>
+                <div style={{ display: "flex", gap: "0.4rem" }}>
+                  {isOwner && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => handlePrepareRevision(art)}
+                    >
+                      New Revision
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => onSelectArtifact(art.slug, art.revision)}
+                  >
+                    Preview
+                  </button>
+                </div>
               </div>
               <div style={{ fontSize: "0.82rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
                 {art.kind} · {art.source_type}
@@ -262,6 +337,45 @@ export function ArtifactsKnowledgePanel({
           ))}
         </div>
       )}
+
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginTop: "0.75rem",
+        }}
+      >
+        <button
+          type="button"
+          className="btn btn-secondary"
+          disabled={!hasPrevious || busy}
+          onClick={() =>
+            onUpdateFilters({
+              ...filters,
+              offset: Math.max(0, offset - limit),
+            })
+          }
+        >
+          Previous
+        </button>
+        <span style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
+          Page {currentPage}
+        </span>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          disabled={!hasNext || busy}
+          onClick={() =>
+            onUpdateFilters({
+              ...filters,
+              offset: offset + limit,
+            })
+          }
+        >
+          Next
+        </button>
+      </div>
 
       {selectedArtifact && (
         <div style={{ marginTop: "0.85rem", paddingTop: "0.75rem", borderTop: "1px solid var(--border)" }}>
