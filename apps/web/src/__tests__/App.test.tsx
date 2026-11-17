@@ -17,6 +17,12 @@ vi.mock("../api/client", async () => {
       collectNasSnapshot: vi.fn(),
       listNasHistory: vi.fn(),
       listNasAlerts: vi.fn(),
+      getMediaOverview: vi.fn(),
+      getMediaServices: vi.fn(),
+      getMediaServiceDetail: vi.fn(),
+      collectMediaSnapshot: vi.fn(),
+      listMediaAlerts: vi.fn(),
+      listMediaHistory: vi.fn(),
       getSettings: vi.fn(),
       listProjects: vi.fn(),
       listTasks: vi.fn(),
@@ -32,7 +38,352 @@ vi.mock("../api/client", async () => {
   };
 });
 
+import type { MediaOverviewResponse } from "../api/types";
+
 const mockedClient = vi.mocked(apiClient);
+
+const mockMediaOverviewResponse: MediaOverviewResponse = {
+  status: "degraded",
+  overall_status: "degraded",
+  adapter_enabled: true,
+  collected_at: "2026-11-16T20:05:00Z",
+  collection_interval_seconds: 90,
+  history_retention_limit: 120,
+  failure_threshold: 3,
+  snapshot_stale_seconds: 300,
+  reason: "Degraded status or warnings in: qbittorrent.",
+  scheduler: {
+    enabled: true,
+    running: true,
+    last_status: "degraded",
+  },
+  summary: {
+    configured_services_count: 7,
+    online_services_count: 6,
+    jellyfin_active_streams: 2,
+    jellyfin_direct_play_streams: 1,
+    jellyfin_transcoding_streams: 1,
+    qb_download_speed_bytes: 12582912,
+    qb_upload_speed_bytes: 1048576,
+    qb_downloading_count: 1,
+    qb_seeding_count: 2,
+    qb_stalled_count: 1,
+    qb_errored_count: 0,
+    sonarr_queue_count: 1,
+    sonarr_missing_episodes: 3,
+    radarr_queue_count: 1,
+    radarr_missing_movies: 4,
+    bazarr_missing_subtitles: 7,
+    prowlarr_failing_indexers: 0,
+    seerr_pending_requests: 1,
+    seerr_approved_requests: 5,
+  },
+  services: {
+    jellyfin: {
+      service: "jellyfin",
+      title: "Jellyfin Media Server",
+      category: "media",
+      enabled: true,
+      configured: true,
+      status: "online",
+      error_code: null,
+      reason: "Server healthy.",
+      latency_ms: 14.2,
+      version: "10.9.11",
+      collected_at: "2026-11-16T20:05:00Z",
+      stale: false,
+      age_seconds: 0,
+      consecutive_failures: 0,
+      read_only_enforced: true,
+      write_operations_performed: 0,
+      metrics: {
+        server_name: "HomeNAS-Jellyfin",
+        operating_system: "Linux",
+        libraries: {
+          movies: 142,
+          series: 28,
+          episodes: 910,
+          songs: 0,
+          albums: 0,
+        },
+        sessions: {
+          active_count: 2,
+          direct_play_count: 1,
+          direct_stream_count: 0,
+          transcoding_count: 1,
+          paused_count: 0,
+          streams: [
+            {
+              session_id: "sess-1",
+              user_name: "family",
+              client: "Jellyfin Web",
+              device_name: "LivingRoomTV",
+              item_title: "Dune: Part Two",
+              item_type: "Movie",
+              play_method: "DirectPlay",
+              is_paused: false,
+              transcode_reasons: [],
+            },
+            {
+              session_id: "sess-2",
+              user_name: "mobile_user",
+              client: "Findroid",
+              device_name: "Pixel 8",
+              item_title: "Severance",
+              item_type: "Episode",
+              play_method: "Transcode",
+              is_paused: false,
+              transcode_reasons: ["ContainerNotSupported"],
+            },
+          ],
+        },
+        playback_errors: {
+          accessible: true,
+          count: 0,
+          recent: [],
+        },
+      },
+      alerts: [],
+    },
+    qbittorrent: {
+      service: "qbittorrent",
+      title: "qBittorrent Download Client",
+      category: "downloads",
+      enabled: true,
+      configured: true,
+      status: "degraded",
+      error_code: null,
+      reason: "1 stalled torrent(s) exceeding 1800s threshold",
+      latency_ms: 18.5,
+      version: "v4.6.5",
+      collected_at: "2026-11-16T20:05:00Z",
+      stale: false,
+      age_seconds: 0,
+      consecutive_failures: 0,
+      read_only_enforced: true,
+      write_operations_performed: 0,
+      metrics: {
+        webapi_version: "2.9.3",
+        connection_status: "connected",
+        dht_nodes: 185,
+        download_speed_bytes: 12582912,
+        upload_speed_bytes: 1048576,
+        downloaded_session_bytes: 10737418240,
+        uploaded_session_bytes: 2147483648,
+        counts: {
+          total: 4,
+          downloading: 1,
+          seeding: 2,
+          paused: 0,
+          stalled: 1,
+          stalled_over_threshold: 1,
+          queued: 0,
+          checking: 0,
+          errored: 0,
+        },
+        stalled_threshold_seconds: 1800,
+        stalled_torrents: [
+          {
+            hash: "abc12345",
+            name: "Linux-ISO-x86_64",
+            state: "stalledDL",
+            progress_percent: 42.5,
+            time_active_seconds: 5400,
+            eta_seconds: 8640000,
+            exceeds_threshold: true,
+          },
+        ],
+        errored_torrents: [],
+        active_queue: [],
+        credential_scope_notice:
+          "qBittorrent WebUI session cookies carry full account privileges on the server; read-only operation is strictly enforced client-side by HomeAgentP via GET-only endpoint allowlisting.",
+      },
+      alerts: [],
+    },
+    sonarr: {
+      service: "sonarr",
+      title: "Sonarr TV Automation",
+      category: "media",
+      enabled: true,
+      configured: true,
+      status: "online",
+      error_code: null,
+      reason: "Sonarr v3 healthy.",
+      latency_ms: 11.0,
+      version: "4.0.9.2244",
+      collected_at: "2026-11-16T20:05:00Z",
+      stale: false,
+      age_seconds: 0,
+      consecutive_failures: 0,
+      read_only_enforced: true,
+      write_operations_performed: 0,
+      metrics: {
+        total_count: 28,
+        monitored_count: 26,
+        available_file_count: 910,
+        size_on_disk_bytes: 1099511627776,
+        missing_count: 3,
+        queue_total: 1,
+        queue_failed_count: 0,
+        queue_items: [],
+        failed_imports: [],
+        health_warnings: [],
+        diskspace: [
+          {
+            path: "/mnt/disk1/media/tv",
+            label: "disk1",
+            free_bytes: 2199023255552,
+            total_bytes: 8796093022208,
+          },
+        ],
+      },
+      alerts: [],
+    },
+    radarr: {
+      service: "radarr",
+      title: "Radarr Movie Automation",
+      category: "media",
+      enabled: true,
+      configured: true,
+      status: "online",
+      error_code: null,
+      reason: "Radarr v3 healthy.",
+      latency_ms: 10.4,
+      version: "5.10.3.9171",
+      collected_at: "2026-11-16T20:05:00Z",
+      stale: false,
+      age_seconds: 0,
+      consecutive_failures: 0,
+      read_only_enforced: true,
+      write_operations_performed: 0,
+      metrics: {
+        total_count: 142,
+        monitored_count: 130,
+        available_file_count: 126,
+        size_on_disk_bytes: 2199023255552,
+        missing_count: 4,
+        queue_total: 1,
+        queue_failed_count: 0,
+        queue_items: [],
+        failed_imports: [],
+        health_warnings: [],
+        diskspace: [],
+      },
+      alerts: [],
+    },
+    bazarr: {
+      service: "bazarr",
+      title: "Bazarr Subtitle Manager",
+      category: "media",
+      enabled: true,
+      configured: true,
+      status: "online",
+      error_code: null,
+      reason: "Bazarr healthy.",
+      latency_ms: 9.8,
+      version: "1.4.3",
+      collected_at: "2026-11-16T20:05:00Z",
+      stale: false,
+      age_seconds: 0,
+      consecutive_failures: 0,
+      read_only_enforced: true,
+      write_operations_performed: 0,
+      metrics: {
+        missing_episode_subtitles: 5,
+        missing_movie_subtitles: 2,
+        unhealthy_providers_count: 0,
+        sonarr_signalr: "LIVE",
+        radarr_signalr: "LIVE",
+        health_issues: [],
+      },
+      alerts: [],
+    },
+    prowlarr: {
+      service: "prowlarr",
+      title: "Prowlarr Indexer Manager",
+      category: "media",
+      enabled: true,
+      configured: true,
+      status: "online",
+      error_code: null,
+      reason: "Prowlarr v1 healthy.",
+      latency_ms: 8.6,
+      version: "1.24.3.4754",
+      collected_at: "2026-11-16T20:05:00Z",
+      stale: false,
+      age_seconds: 0,
+      consecutive_failures: 0,
+      read_only_enforced: true,
+      write_operations_performed: 0,
+      metrics: {
+        total_indexers: 6,
+        enabled_indexers: 6,
+        failing_indexers_count: 0,
+        failing_indexers: [],
+        health_warnings: [],
+      },
+      alerts: [],
+    },
+    seerr: {
+      service: "seerr",
+      title: "Seerr Media Requests",
+      category: "media",
+      enabled: true,
+      configured: true,
+      status: "online",
+      error_code: null,
+      reason: "Seerr v1 healthy.",
+      latency_ms: 12.1,
+      version: "2.0.1",
+      collected_at: "2026-11-16T20:05:00Z",
+      stale: false,
+      age_seconds: 0,
+      consecutive_failures: 0,
+      read_only_enforced: true,
+      write_operations_performed: 0,
+      metrics: {
+        update_available: false,
+        commits_behind: 0,
+        requests: {
+          total: 18,
+          movie: 10,
+          tv: 8,
+          pending: 1,
+          approved: 5,
+          processing: 1,
+          available: 10,
+          declined: 1,
+        },
+        recent_requests: [],
+      },
+      alerts: [],
+    },
+  },
+  alerts: [
+    {
+      alert_key: "media:qbittorrent:media.qbittorrent.stalled_torrents",
+      code: "media.qbittorrent.stalled_torrents",
+      severity: "warning",
+      category: "downloads",
+      service: "qbittorrent",
+      target: "qbittorrent",
+      message: "qBittorrent has 1 stalled torrent(s) exceeding 1800s threshold.",
+      status: "active",
+      first_seen_at: "2026-11-16T20:00:00Z",
+      last_seen_at: "2026-11-16T20:05:00Z",
+      occurrences: 2,
+    },
+  ],
+  safety: {
+    read_only_enforced: true,
+    write_operations_performed: 0,
+    media_filesystem_mounted: false,
+    docker_socket_used: false,
+    ssrf_allowlist_enforced: true,
+    redirects_blocked: true,
+    qbittorrent_client_allowlist_only: true,
+  },
+};
 
 describe("HomeAgentP Web Dashboard", () => {
   beforeEach(() => {
@@ -49,7 +400,7 @@ describe("HomeAgentP Web Dashboard", () => {
     });
   });
 
-  it("renders honest unavailable states and navigates across NAS Guardian, Media, Tasks, Scripts, Reports, and Settings", async () => {
+  it("renders honest unavailable states and navigates across NAS Guardian, Media & Downloads, Tasks, Scripts, Reports, and Settings", async () => {
     mockedClient.getMe.mockResolvedValueOnce({
       username: "nas_owner",
       role: "owner",
@@ -86,23 +437,26 @@ describe("HomeAgentP Web Dashboard", () => {
         },
         media: {
           title: "Media Stack",
-          status: "unavailable",
+          status: "online",
           phase: "Phase 03",
-          reason: "Read-only media API connectors are scheduled for Phase 03.",
+          reason: "Read-only media API connectors active.",
           services: {
-            jellyfin: "unavailable",
-            sonarr: "unavailable",
-            radarr: "unavailable",
+            jellyfin: "online",
+            sonarr: "online",
+            radarr: "online",
+            bazarr: "online",
+            prowlarr: "online",
+            seerr: "online",
           },
         },
         downloads: {
           title: "Downloads (qBittorrent)",
-          status: "unavailable",
+          status: "degraded",
           phase: "Phase 03",
-          reason: "qBittorrent read-only adapter is scheduled for Phase 03.",
+          reason: "1 stalled torrent(s) exceeding 1800s threshold",
           metrics: {
-            active_torrents: "unavailable",
-            stalled_torrents: "unavailable",
+            active_torrents: "3",
+            stalled_torrents: "1",
           },
         },
         home_automation: {
@@ -317,6 +671,63 @@ describe("HomeAgentP Web Dashboard", () => {
       return [activeItem];
     });
 
+    mockedClient.getMediaOverview.mockResolvedValue(mockMediaOverviewResponse);
+    mockedClient.listMediaHistory.mockResolvedValue([
+      {
+        id: 1,
+        collected_at: "2026-11-16T20:05:00Z",
+        overall_status: "degraded",
+        jellyfin_active_streams: 2,
+        jellyfin_transcoding_streams: 1,
+        qb_dl_speed_bytes: 12582912,
+        qb_up_speed_bytes: 1048576,
+        qb_downloading_count: 1,
+        qb_stalled_count: 1,
+        qb_errored_count: 0,
+        sonarr_queue_count: 1,
+        radarr_queue_count: 1,
+        missing_subtitles_count: 7,
+        pending_requests_count: 1,
+      },
+    ]);
+    mockedClient.listMediaAlerts.mockImplementation(async (includeResolved?: boolean) => {
+      const activeAlert = {
+        id: 10,
+        alert_key: "media:qbittorrent:media.qbittorrent.stalled_torrents",
+        code: "media.qbittorrent.stalled_torrents",
+        severity: "warning" as const,
+        category: "downloads",
+        service: "qbittorrent",
+        target: "qbittorrent",
+        message: "qBittorrent has 1 stalled torrent(s) exceeding 1800s threshold.",
+        status: "active",
+        first_seen_at: "2026-11-16T20:00:00Z",
+        last_seen_at: "2026-11-16T20:05:00Z",
+        occurrences: 2,
+      };
+      if (includeResolved) {
+        return [
+          activeAlert,
+          {
+            id: 11,
+            alert_key: "media:prowlarr:media.prowlarr.indexer_failure",
+            code: "media.prowlarr.indexer_failure",
+            severity: "warning" as const,
+            category: "indexers",
+            service: "prowlarr",
+            target: "prowlarr",
+            message: "Prowlarr had 1 failing indexer.",
+            status: "resolved",
+            first_seen_at: "2026-11-16T18:00:00Z",
+            last_seen_at: "2026-11-16T18:05:00Z",
+            resolved_at: "2026-11-16T18:10:00Z",
+            occurrences: 1,
+          },
+        ];
+      }
+      return [activeAlert];
+    });
+
     mockedClient.listProjects.mockResolvedValue([
       {
         id: 1,
@@ -409,7 +820,7 @@ describe("HomeAgentP Web Dashboard", () => {
       script_execution_enabled: false,
       docker_socket_mounted: false,
       antigravity_cli_wrapper: "prohibited",
-      integrations: { nas_guardian: "critical" },
+      integrations: { nas_guardian: "critical", media_downloads: "warning" },
     });
 
     render(<App />);
@@ -420,8 +831,8 @@ describe("HomeAgentP Web Dashboard", () => {
 
     expect(screen.getByText("Mount /mnt/disk1")).toBeInTheDocument();
     expect(screen.getByText("Mount /mnt/disk2")).toBeInTheDocument();
-    expect(screen.getAllByText("UNAVAILABLE").length).toBeGreaterThan(5);
     expect(mockedClient.listNasAlerts).toHaveBeenCalledWith(false);
+    expect(mockedClient.listMediaAlerts).toHaveBeenCalledWith(false);
 
     // Navigate to NAS Guardian
     fireEvent.click(screen.getByRole("button", { name: /^NAS Guardian$/i }));
@@ -436,12 +847,39 @@ describe("HomeAgentP Web Dashboard", () => {
       ),
     ).toBeInTheDocument();
 
-    // Toggle "Show resolved" checkbox -> calls listNasAlerts(true) and displays resolved alert
+    // Toggle "Show resolved" checkbox on NAS Guardian -> calls listNasAlerts(true) and displays resolved alert
     fireEvent.click(screen.getByLabelText(/Show resolved/i));
     await waitFor(() => {
       expect(mockedClient.listNasAlerts).toHaveBeenCalledWith(true);
       expect(screen.getByText("CPU usage was elevated.")).toBeInTheDocument();
       expect(screen.getByText("RESOLVED")).toBeInTheDocument();
+    });
+
+    // Navigate to Media & Downloads Hub (Phase 03)
+    fireEvent.click(screen.getByRole("button", { name: /Media & Downloads/i }));
+    expect(
+      screen.getByText(/Media & Downloads Monitoring Hub \(Phase 03 Read-Only\)/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Dune: Part Two")).toBeInTheDocument();
+    expect(screen.getByText("Severance")).toBeInTheDocument();
+    expect(screen.getByText("Linux-ISO-x86_64")).toBeInTheDocument();
+    expect(
+      screen.getByText(/qBittorrent has 1 stalled torrent\(s\) exceeding 1800s threshold\./i),
+    ).toBeInTheDocument();
+
+    // Toggle "Show resolved" on Media Alerts -> calls listMediaAlerts(true) and shows resolved Prowlarr alert
+    fireEvent.click(screen.getByLabelText(/Show resolved/i));
+    await waitFor(() => {
+      expect(mockedClient.listMediaAlerts).toHaveBeenCalledWith(true);
+      expect(screen.getByText("Prowlarr had 1 failing indexer.")).toBeInTheDocument();
+    });
+
+    // Trigger manual read-only media poll on Media & Downloads tab
+    mockedClient.collectMediaSnapshot.mockResolvedValueOnce(mockMediaOverviewResponse);
+    fireEvent.click(screen.getByRole("button", { name: /Media & Downloads/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Poll Read-Only Media Snapshot/i }));
+    await waitFor(() => {
+      expect(mockedClient.collectMediaSnapshot).toHaveBeenCalledTimes(1);
     });
 
     // Navigate to Tasks
@@ -460,3 +898,5 @@ describe("HomeAgentP Web Dashboard", () => {
     expect(screen.getByText("PROHIBITED")).toBeInTheDocument();
   });
 });
+
+

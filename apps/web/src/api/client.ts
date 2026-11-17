@@ -2,6 +2,10 @@ import type {
   AuditLogItem,
   AuthUser,
   DomainCategory,
+  MediaAlertItem,
+  MediaHistoryItem,
+  MediaOverviewResponse,
+  MediaServiceSnapshot,
   NasAlertItem,
   NasHistoryItem,
   NasStatusResponse,
@@ -148,5 +152,23 @@ export const apiClient = {
   listNasAlerts: (includeResolved = false) =>
     requestJson<NasAlertItem[]>(
       `/api/v1/nas/alerts?include_resolved=${includeResolved ? "true" : "false"}`,
+    ),
+  getMediaOverview: () =>
+    requestJson<MediaOverviewResponse>("/api/v1/media/overview"),
+  getMediaService: <T = Record<string, unknown>>(service: string) =>
+    requestJson<MediaServiceSnapshot<T>>(
+      `/api/v1/media/${encodeURIComponent(service)}`,
+    ),
+  collectMediaSnapshot: (csrfToken: string) =>
+    requestJson<MediaOverviewResponse>(
+      "/api/v1/media/collect",
+      { method: "POST" },
+      csrfToken,
+    ),
+  listMediaHistory: (limit = 20) =>
+    requestJson<MediaHistoryItem[]>(`/api/v1/media/history?limit=${limit}`),
+  listMediaAlerts: (includeResolved = false) =>
+    requestJson<MediaAlertItem[]>(
+      `/api/v1/media/alerts?include_resolved=${includeResolved ? "true" : "false"}`,
     ),
 };
