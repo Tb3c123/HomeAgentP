@@ -113,9 +113,15 @@
 |---|---|---|---|
 | **R01** | `COMPLETED` | `1d53d18` | Baseline checks all PASS (`37` pytest, `ruff`, `mypy`, `tsc`, `2` vitest, `vite build`). Architecture map & `origin/main` sync plan documented. |
 | **Sync `origin/main`** | `COMPLETED` | `1cbccf0` | Merged `origin/main` (`a2e7ef6`) cleanly (`ort`, zero conflicts). Preserved Phase 02 NAS Scheduler (`b96d1b2`, `ecd74e0`) & Host Producer. Updated PR #3 base to `main`. `38` pytest + frontend PASS. |
-| **R02.1 (Jellyfin)** | `COMPLETED` | *(this commit)* | Extracted `JellyfinAdapter` into `modules/media/connectors/jellyfin.py` (275 lines); `adapters.py` reduced `1393 -> 1151` lines with backward-compatible re-export. `39` pytest, `ruff`, `mypy` PASS. |
-| **R02.2–R02.7** | `PENDING` | — | Extract remaining 6 connectors + `arr_common.py` + registry one per commit. |
-| **R03** | `PENDING` | — | Split `base.py` (474 lines) + security audit. |
+| **R02.1 (Jellyfin)** | `COMPLETED` | `c895907` | Extracted `JellyfinAdapter` into `modules/media/connectors/jellyfin.py` (275 lines); `adapters.py` reduced `1393 -> 1151` lines with backward-compatible re-export. `39` pytest, `ruff`, `mypy` PASS. |
+| **R02.2 (qBittorrent)** | `COMPLETED` | `a1b0f69` | Extracted `QBittorrentAdapter` + `QBITTORRENT_CREDENTIAL_NOTICE` into `connectors/qbittorrent.py` (374 lines). |
+| **R02.3 (Arr v3 Base)** | `COMPLETED` | `f28be67` | Extracted shared Sonarr/Radarr v3 base `_ArrV3BaseAdapter` into `connectors/arr_common.py` (275 lines). |
+| **R02.4 (Sonarr)** | `COMPLETED` | `c83f2ef` | Extracted `SonarrAdapter` into `connectors/sonarr.py` (48 lines). |
+| **R02.5 (Radarr)** | `COMPLETED` | `d8eb58f` | Extracted `RadarrAdapter` into `connectors/radarr.py` (48 lines). |
+| **R02.6 (Bazarr & Prowlarr)** | `COMPLETED` | `4ab1974`, `403ea16` | Extracted `BazarrAdapter` (`connectors/bazarr.py`, 154 lines) and `ProwlarrAdapter` (`connectors/prowlarr.py`, 194 lines) in separate commits. |
+| **R02.7 (Seerr & Registry)** | `COMPLETED` | `588798e` | Extracted `SeerrAdapter` (`connectors/seerr.py`, 159 lines) and `build_media_adapters` (`connectors/registry.py`, 33 lines); `adapters.py` reduced to `51`-line thin compatibility layer. Full backend & frontend checks PASS. |
+| **R03.1 (Base Split)** | `COMPLETED` | `b66ab39` | Split `base.py` (475 lines) into `errors.py` (62), `security.py` (147), `http_client.py` (209), `adapter_base.py` (168); `base.py` reduced to `58`-line compatibility layer. |
+| **R03.2 (Security Hardening)** | `COMPLETED` | `a507a89` | Hardened segment-safe path matching, IPv4-mapped IPv6 & DNS resolution SSRF checks, 3xx redirect blocking, early `Content-Length` cap, and added regression test `test_r03_security_hardening_regressions` (`40` pytest, `ruff`, `mypy` PASS). |
 | **R04** | `PENDING` | — | Split `collector.py` (855 lines) into state, alerts, persistence, orchestration. |
 | **R05** | `PENDING` | — | Shared hardened scheduler + regression tests. |
 | **R06** | `PENDING` | — | Split `App.tsx` (1,874 lines) starting with Media Dashboard. |
