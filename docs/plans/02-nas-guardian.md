@@ -7,15 +7,15 @@ Implement **NAS Guardian** (`Phase 02`) within the two-container HomeAgentP B+ a
 
 ## Scope & Hardened Architecture (`P02-F01`–`P02-F05`)
 
-1. **Host Telemetry Boundary (`P02-F01` — `apps/core/src/homeagentp_core/modules/nas/collector.py`)**:
+1. **Host Telemetry Boundary (`P02-F01` — `apps/core/src/homeagentp_core/modules/nas/collector.py`, `host_producer.py`)**:
    - **Strict Namespace Separation**: `homeagentp-core` **never** assumes its own `/proc`, `/`, or `/proc/mounts` inside a container reflects the Debian 12 NAS host.
-   - **`host_snapshot` Mode (Recommended for Docker / CasaOS)**: A least-privilege host systemd timer writes an atomic JSON snapshot (`nas_host_snapshot.json`, schema `homeagentp.nas_host.v1`) into an allowlisted directory mounted `:ro` into `homeagentp-core` (`HOMEAGENTP_REPORTS_DIR`). `homeagentp-core` reads the file using the TOCTOU-safe descriptor reader (`read_allowlisted_text_file`, `O_NOFOLLOW`, `st_nlink == 1`), verifies `generated_at` and `ttl_seconds`, and marks expired data as `stale`.
+   - **`host_snapshot` Mode (Recommended for Docker / CasaOS)**: A least-privilege host systemd timer (`deploy/systemd/homeagentp-nas-host-snapshot.{service,timer}`, running as non-root `User=10001` / `Group=10001`, `UMask=0022`, `StateDirectory=homeagentp/reports`) writes an atomic JSON snapshot (`/var/lib/homeagentp/reports/nas_host_snapshot.json`, mode `0644`, `st_nlink == 1`, schema `homeagentp.nas_host.v1`) into `/var/lib/homeagentp/reports`, which `deploy/docker-compose.dev.yml` mounts `:ro` into `homeagentp-core` at `/config/reports` (`${HOMEAGENTP_HOST_REPORTS_DIR:-/var/lib/homeagentp/reports}:/config/reports:ro`). `homeagentp-core` (UID `10001`) reads `/config/reports/nas_host_snapshot.json` using the TOCTOU-safe descriptor reader (`read_allowlisted_text_file`, `O_NOFOLLOW`, `st_nlink == 1`), verifies `generated_at` and `ttl_seconds`, and marks expired data as `stale`.
    - **`direct_host_fs` Mode**: Requires explicit read-only host mounts (`/host/proc`, `/host/root`). `verify_direct_host_boundary()` rejects `/proc`, `/`, and any container `overlay`/`aufs`/`shm` root filesystem, returning `status="unavailable"` (`host_verified=False`) and **never** falsely reporting `/mnt/disk1` or `/mnt/disk2` as unmounted when the host boundary is unverified.
 
 2. **Automatic Background Collection Scheduler (`P02-F02` — `apps/core/src/homeagentp_core/modules/nas/scheduler.py`)**:
    - `NasCollectionScheduler` runs inside the FastAPI `lifespan` independently of Dashboard browser requests (default interval `60s` when `HOMEAGENTP_NAS_SCHEDULER_ENABLED=true`).
-   - **Non-Overlapping**: Guarded by an `asyncio.Lock` (`skipped_overlap_count` tracked if a cycle is already running).
-   - **Timeout & Graceful Shutdown**: Wraps each collection in `asyncio.wait_for(..., timeout=nas_collection_timeout_seconds)` and cancels/awaits cleanly on application shutdown.
+   - **Non-Overlapping Worker Guard**: Guarded by both an `asyncio.Lock` and a worker-thread `threading.Lock` (`_worker_lock`) inside a single-worker `ThreadPoolExecutor(max_workers=1)` so a timed-out OS I/O call never spawns a second concurrent worker thread (`skipped_worker_busy`).
+   - **Bounded Shutdown & Honest Worker State**: Wraps each collection in `asyncio.wait_for(..., timeout=nas_collection_timeout_seconds)`. On `stop(wait_timeout=...)`, sets `stopping = True`, rejects new collection cycles, and waits up to `wait_timeout` for any in-flight worker thread. Never claims `last_status = "stopped"` if the worker thread is still blocked on I/O after the bounded timeout (`last_status = "stopping_worker_hung"`, `worker_thread_busy = True`).
    - **SQLite Write-Throttling**: Skips background persistence when telemetry is `unavailable` and enforces `nas_min_persist_interval_seconds` when `adapter_status` is unchanged to protect the NAS NVMe/SSD from excessive writes.
 
 3. **Container Snapshot Schema, Freshness & TTL (`P02-F03`)**:
