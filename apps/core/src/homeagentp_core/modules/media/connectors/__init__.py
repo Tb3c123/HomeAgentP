@@ -5,12 +5,14 @@ from homeagentp_core.modules.media.connectors.qbittorrent import (
     QBITTORRENT_CREDENTIAL_NOTICE,
     QBittorrentAdapter,
 )
+from homeagentp_core.modules.media.connectors.radarr import RadarrAdapter
 from homeagentp_core.modules.media.connectors.sonarr import SonarrAdapter
 
 __all__ = [
     "QBITTORRENT_CREDENTIAL_NOTICE",
     "JellyfinAdapter",
     "QBittorrentAdapter",
+    "RadarrAdapter",
     "SonarrAdapter",
 ]
 
