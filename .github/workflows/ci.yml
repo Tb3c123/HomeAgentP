@@ -53,3 +53,91 @@ jobs:
         run: npm test
       - name: Build production bundle
         run: npm run build
+
+
+  docker-staging:
+    name: Docker staging (isolated, no NAS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare isolated staging configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/homeagentp-reports"
+          secret_key=$(openssl rand -hex 40)
+          admin_password=$(openssl rand -hex 24)
+          echo "::add-mask::$secret_key"
+          echo "::add-mask::$admin_password"
+          {
+            echo "HOMEAGENTP_ENV=staging"
+            echo "HOMEAGENTP_PORT=18310"
+            echo "HOMEAGENTP_SECRET_KEY=$secret_key"
+            echo "HOMEAGENTP_ADMIN_PASSWORD=$admin_password"
+            echo "HOMEAGENTP_SEED_EXAMPLES=false"
+            echo "HOMEAGENTP_HOST_SCRIPTS_DIR=$GITHUB_WORKSPACE/config/examples/scripts"
+            echo "HOMEAGENTP_HOST_REPORTS_DIR=$RUNNER_TEMP/homeagentp-reports"
+            echo "HOMEAGENTP_NAS_ADAPTER_ENABLED=false"
+            echo "HOMEAGENTP_NAS_SCHEDULER_ENABLED=false"
+            echo "HOMEAGENTP_MEDIA_ADAPTER_ENABLED=false"
+            echo "HOMEAGENTP_MEDIA_SCHEDULER_ENABLED=false"
+          } >> "$GITHUB_ENV"
+      - name: Validate Compose without external service credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose -f deploy/docker-compose.dev.yml config --quiet
+      - name: Build and start isolated services
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose -f deploy/docker-compose.dev.yml up -d --build --wait --wait-timeout 150
+      - name: Verify health, security, auth, and persistence across restart
+        shell: bash
+        run: |
+          set -euo pipefail
+          core_id=$(docker compose -f deploy/docker-compose.dev.yml ps -q homeagentp-core)
+          web_id=$(docker compose -f deploy/docker-compose.dev.yml ps -q homeagentp-web)
+          test -n "$core_id" && test -n "$web_id"
+          test "$(docker inspect "$core_id" --format '{{.Config.User}}')" = "10001:10001"
+          test "$(docker inspect "$web_id" --format '{{.Config.User}}')" = "101:101"
+          for cid in "$core_id" "$web_id"; do
+            test "$(docker inspect "$cid" --format '{{.HostConfig.ReadonlyRootfs}}')" = true
+            test "$(docker inspect "$cid" --format '{{.HostConfig.Privileged}}')" = false
+            test "$(docker inspect "$cid" --format '{{.HostConfig.NetworkMode}}')" != host
+            docker inspect "$cid" --format '{{json .HostConfig.CapDrop}}' | grep -q ALL
+            docker inspect "$cid" --format '{{json .HostConfig.SecurityOpt}}' | grep -q no-new-privileges
+            if docker inspect "$cid" --format '{{json .Mounts}}' | grep -Eq '/var/run/docker.sock|/mnt/disk1|/mnt/disk2'; then
+              echo "Unsafe mount detected" >&2
+              exit 1
+            fi
+          done
+          test "$(docker compose -f deploy/docker-compose.dev.yml exec -T homeagentp-core id -u | tr -d '\r')" = "10001"
+          test "$(docker compose -f deploy/docker-compose.dev.yml exec -T homeagentp-web id -u | tr -d '\r')" = "101"
+          curl --fail --silent --show-error http://127.0.0.1:18310/api/v1/health \
+            | python3 -c 'import json,sys; x=json.load(sys.stdin); assert x["status"]=="ok" and x["schema_version"]=="003_media_downloads", x'
+          code=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:18310/api/v1/media/overview)
+          test "$code" = 401
+          docker compose -f deploy/docker-compose.dev.yml exec -T homeagentp-core python3 -c \
+            'import sqlite3; c=sqlite3.connect("/data/homeagentp.db"); c.execute("CREATE TABLE IF NOT EXISTS staging_probe (value TEXT NOT NULL)"); c.execute("INSERT INTO staging_probe VALUES (?)", ("persisted",)); c.commit()'
+          docker compose -f deploy/docker-compose.dev.yml restart homeagentp-core
+          docker compose -f deploy/docker-compose.dev.yml exec -T homeagentp-core python3 -c \
+            'import sqlite3; c=sqlite3.connect("/data/homeagentp.db"); assert c.execute("SELECT value FROM staging_probe LIMIT 1").fetchone()[0] == "persisted"'
+          ready=false
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:18310/api/v1/health >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+      - name: Show staging diagnostics on failure
+        if: failure()
+        run: |
+          docker compose -f deploy/docker-compose.dev.yml ps || true
+          docker compose -f deploy/docker-compose.dev.yml logs --tail 80 || true
+      - name: Stop isolated staging containers (preserve volumes)
+        if: always()
+        run: docker compose -f deploy/docker-compose.dev.yml down || true

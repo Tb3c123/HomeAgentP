@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from homeagentp_core import __version__
 from homeagentp_core.auth.security import (
@@ -16,6 +16,7 @@ from homeagentp_core.auth.security import (
 from homeagentp_core.config import Settings
 from homeagentp_core.db.connection import db_session
 from homeagentp_core.db.migrator import get_current_schema_version
+from homeagentp_core.modules.media.collector import collect_media_telemetry
 from homeagentp_core.modules.nas.collector import collect_nas_telemetry
 
 router = APIRouter(prefix="/api/v1", tags=["health-overview"])
@@ -38,15 +39,17 @@ def health_check(settings: Settings = Depends(get_settings)) -> dict[str, Any]:
 
 @router.get("/overview")
 def get_overview(
+    request: Request,
     principal: AuthenticatedPrincipal = Depends(get_current_principal),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     """Return honest system overview across all HomeAgentP domains.
 
     Never fabricates live NAS, Media, Download, or Home Assistant telemetry.
-    When HOMEAGENTP_NAS_ADAPTER_ENABLED=false, NAS Guardian reports status='unavailable'.
-    When enabled, it reports read-only telemetry from /proc and mount checks.
+    When HOMEAGENTP_NAS_ADAPTER_ENABLED=false or HOMEAGENTP_MEDIA_ADAPTER_ENABLED=false,
+    the corresponding domains honestly report status='unavailable'.
     """
+    transports = getattr(request.app.state, "media_transports", None)
     with db_session(settings.db_path) as conn:
         total_projects = int(conn.execute("SELECT COUNT(*) FROM projects").fetchone()[0])
         total_tasks = int(conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
@@ -68,6 +71,15 @@ def get_overview(
             conn.execute("SELECT COUNT(*) FROM nas_metric_snapshots").fetchone()[0]
         )
         nas_alerts_count = int(conn.execute("SELECT COUNT(*) FROM nas_alerts").fetchone()[0])
+        media_snapshots_count = int(
+            conn.execute("SELECT COUNT(*) FROM media_metric_snapshots").fetchone()[0]
+        )
+        media_alerts_count = int(
+            conn.execute("SELECT COUNT(*) FROM media_alerts").fetchone()[0]
+        )
+        media_snap = collect_media_telemetry(
+            settings, conn=conn, transports=transports
+        )
 
     nas_snap = collect_nas_telemetry(settings, sample_delay_seconds=0.0)
     mounts_iter = nas_snap.get("mounts_list") or list(nas_snap.get("mounts", {}).values())
@@ -94,6 +106,53 @@ def get_overview(
         else "unavailable"
     )
 
+    media_services_map = {
+        svc_key: str(media_snap["services"][svc_key]["status"])
+        for svc_key in ("jellyfin", "sonarr", "radarr", "bazarr", "prowlarr", "seerr")
+    }
+    media_only_statuses = list(media_services_map.values())
+    if all(st == "unavailable" for st in media_only_statuses):
+        media_domain_status = "unavailable"
+        media_domain_reason = (
+            "Media connectors are not configured (set HOMEAGENTP_MEDIA_ADAPTER_ENABLED=true "
+            "and service URLs/API keys)."
+        )
+    elif any(
+        st in {"critical", "offline", "auth_error", "error"}
+        for st in media_only_statuses
+    ):
+        media_domain_status = "critical"
+        media_domain_reason = "One or more Media services reported critical/offline status."
+    elif any(st in {"degraded", "timeout", "stale"} for st in media_only_statuses):
+        media_domain_status = "degraded"
+        media_domain_reason = "One or more Media services reported warnings or degraded status."
+    else:
+        media_domain_status = "online"
+        media_domain_reason = "Read-only Media connectors active."
+
+    qb_svc = media_snap["services"]["qbittorrent"]
+    qb_status = str(qb_svc["status"])
+    qb_metrics_raw = qb_svc.get("metrics", {})
+    qb_counts = qb_metrics_raw.get("counts", {}) if isinstance(qb_metrics_raw, dict) else {}
+    if qb_status == "unavailable" or not qb_svc.get("enabled"):
+        downloads_metrics = {
+            "active_torrents": "unavailable",
+            "stalled_torrents": "unavailable",
+            "download_speed": "unavailable",
+        }
+    else:
+        dl_bps = qb_metrics_raw.get("download_speed_bytes")
+        dl_str = (
+            f"{(int(dl_bps) / (1024 * 1024)):.2f} MiB/s"
+            if isinstance(dl_bps, int)
+            else "unavailable"
+        )
+        downloads_metrics = {
+            "active_torrents": str(qb_counts.get("downloading", 0)),
+            "stalled_torrents": str(qb_counts.get("stalled", 0)),
+            "download_speed": dl_str,
+        }
+
     return {
         "architecture": "B+ (Antigravity-first, Dashboard-light)",
         "generated_at": datetime.now(UTC).isoformat(),
@@ -108,6 +167,8 @@ def get_overview(
             "audit_events": total_audit_events,
             "nas_snapshots": nas_snapshots_count,
             "nas_alerts": nas_alerts_count,
+            "media_snapshots": media_snapshots_count,
+            "media_alerts": media_alerts_count,
         },
         "domains": {
             "nas_guardian": {
@@ -126,28 +187,17 @@ def get_overview(
             },
             "media": {
                 "title": "Media Stack",
-                "status": "unavailable",
+                "status": media_domain_status,
                 "phase": "Phase 03",
-                "reason": "Read-only media API connectors are scheduled for Phase 03.",
-                "services": {
-                    "jellyfin": "unavailable",
-                    "sonarr": "unavailable",
-                    "radarr": "unavailable",
-                    "bazarr": "unavailable",
-                    "prowlarr": "unavailable",
-                    "seerr": "unavailable",
-                },
+                "reason": media_domain_reason,
+                "services": media_services_map,
             },
             "downloads": {
                 "title": "Downloads (qBittorrent)",
-                "status": "unavailable",
+                "status": qb_status,
                 "phase": "Phase 03",
-                "reason": "qBittorrent read-only adapter is scheduled for Phase 03.",
-                "metrics": {
-                    "active_torrents": "unavailable",
-                    "stalled_torrents": "unavailable",
-                    "download_speed": "unavailable",
-                },
+                "reason": str(qb_svc.get("reason") or "qBittorrent read-only adapter."),
+                "metrics": downloads_metrics,
             },
             "home_automation": {
                 "title": "Home Assistant & Telegram Alerts",

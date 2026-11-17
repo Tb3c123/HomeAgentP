@@ -15,6 +15,8 @@ from homeagentp_core.db.connection import db_session
 from homeagentp_core.db.migrator import apply_migrations
 from homeagentp_core.logging import configure_logging
 from homeagentp_core.modules.health.router import router as health_router
+from homeagentp_core.modules.media.router import router as media_router
+from homeagentp_core.modules.media.scheduler import MediaCollectionScheduler
 from homeagentp_core.modules.nas.router import router as nas_router
 from homeagentp_core.modules.nas.scheduler import NasCollectionScheduler
 from homeagentp_core.modules.reports.router import router as reports_router
@@ -46,20 +48,23 @@ def initialize_core_state(settings: Settings) -> None:
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Create and configure the HomeAgentP Core FastAPI application.
 
-    Note (F04 & P02-F02): initialize_core_state() and the optional NasCollectionScheduler
-    are managed exclusively inside the FastAPI lifespan context manager.
+    Note (F04, P02-F02 & Phase 03): initialize_core_state(), NasCollectionScheduler, and
+    MediaCollectionScheduler are managed exclusively inside the FastAPI lifespan context manager.
     """
     resolved_settings = settings if settings is not None else Settings()  # type: ignore[call-arg]
     nas_scheduler = NasCollectionScheduler(resolved_settings)
+    media_scheduler = MediaCollectionScheduler(resolved_settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         initialize_core_state(resolved_settings)
         app.state.init_count = getattr(app.state, "init_count", 0) + 1
         await nas_scheduler.start()
+        await media_scheduler.start()
         try:
             yield
         finally:
+            await media_scheduler.stop()
             await nas_scheduler.stop()
 
     app = FastAPI(
@@ -74,11 +79,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = resolved_settings
     app.state.nas_scheduler = nas_scheduler
+    app.state.media_scheduler = media_scheduler
     app.state.init_count = 0
 
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(nas_router)
+    app.include_router(media_router)
     app.include_router(tasks_router)
     app.include_router(scripts_router)
     app.include_router(reports_router)

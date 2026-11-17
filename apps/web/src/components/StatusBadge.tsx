@@ -15,7 +15,11 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ value }) => {
     normalized === "resolved" ||
     normalized === "allowlisted" ||
     normalized === "done" ||
-    normalized === "succeeded"
+    normalized === "succeeded" ||
+    normalized === "connected" ||
+    normalized === "directplay" ||
+    normalized === "approved" ||
+    normalized === "available"
   ) {
     tone = "badge-success";
   } else if (
@@ -26,14 +30,20 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ value }) => {
     normalized === "warning" ||
     normalized === "degraded" ||
     normalized === "stale" ||
-    normalized === "active"
+    normalized === "active" ||
+    normalized === "timeout" ||
+    normalized === "firewalled" ||
+    normalized === "transcode" ||
+    normalized === "pending"
   ) {
     tone = "badge-warning";
   } else if (
     normalized === "in_progress" ||
     normalized === "reviewed" ||
     normalized === "ready" ||
-    normalized === "review"
+    normalized === "review" ||
+    normalized === "directstream" ||
+    normalized === "processing"
   ) {
     tone = "badge-info";
   } else if (
@@ -44,7 +54,11 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ value }) => {
     normalized === "missing" ||
     normalized === "unmounted_fallback" ||
     normalized === "permission_denied" ||
-    normalized === "error"
+    normalized === "error" ||
+    normalized === "offline" ||
+    normalized === "auth_error" ||
+    normalized === "disconnected" ||
+    normalized === "declined"
   ) {
     tone = "badge-danger";
   }
