@@ -4,6 +4,9 @@ import type {
   AuditLogItem,
   AuthUser,
   DomainCategory,
+  NasAlertItem,
+  NasHistoryItem,
+  NasStatusResponse,
   OverviewResponse,
   ProjectItem,
   RedactedSettings,
@@ -27,6 +30,19 @@ export type NavSection =
   | "reports"
   | "settings";
 
+function formatBytes(bytes: number | null | undefined): string {
+  if (bytes === null || bytes === undefined) return "unavailable";
+  const gib = bytes / (1024 * 1024 * 1024);
+  if (gib >= 1) return `${gib.toFixed(2)} GiB`;
+  const mib = bytes / (1024 * 1024);
+  return `${mib.toFixed(1)} MiB`;
+}
+
+function formatPercent(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "unavailable";
+  return `${value.toFixed(1)}%`;
+}
+
 export const App: React.FC = () => {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [authChecking, setAuthChecking] = useState<boolean>(true);
@@ -40,6 +56,10 @@ export const App: React.FC = () => {
 
   // Dashboard state
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
+  const [nasStatus, setNasStatus] = useState<NasStatusResponse | null>(null);
+  const [nasHistory, setNasHistory] = useState<NasHistoryItem[]>([]);
+  const [nasAlerts, setNasAlerts] = useState<NasAlertItem[]>([]);
+  const [nasCollectBusy, setNasCollectBusy] = useState<boolean>(false);
   const [projects, setProjects] = useState<ProjectItem[]>([]);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [scripts, setScripts] = useState<ScriptManifestItem[]>([]);
@@ -60,16 +80,23 @@ export const App: React.FC = () => {
   const loadWorkspaceData = useCallback(async () => {
     try {
       setErrorMsg("");
-      const [ov, projs, tsks, scrs, reps, audits, cfg] = await Promise.all([
-        apiClient.getOverview(),
-        apiClient.listProjects(),
-        apiClient.listTasks(),
-        apiClient.listScripts(),
-        apiClient.listReports(),
-        apiClient.listAuditLogs(),
-        apiClient.getSettings(),
-      ]);
+      const [ov, nasSt, nasHist, nasAl, projs, tsks, scrs, reps, audits, cfg] =
+        await Promise.all([
+          apiClient.getOverview(),
+          apiClient.getNasStatus(),
+          apiClient.listNasHistory(15),
+          apiClient.listNasAlerts(true),
+          apiClient.listProjects(),
+          apiClient.listTasks(),
+          apiClient.listScripts(),
+          apiClient.listReports(),
+          apiClient.listAuditLogs(),
+          apiClient.getSettings(),
+        ]);
       setOverview(ov);
+      setNasStatus(nasSt);
+      setNasHistory(nasHist);
+      setNasAlerts(nasAl);
       setProjects(projs);
       setTasks(tsks);
       setScripts(scrs);
@@ -132,6 +159,29 @@ export const App: React.FC = () => {
     } finally {
       setUser(null);
       setOverview(null);
+      setNasStatus(null);
+    }
+  };
+
+  const handleCollectNasSnapshot = async () => {
+    if (!user) return;
+    setNasCollectBusy(true);
+    setErrorMsg("");
+    try {
+      const latest = await apiClient.collectNasSnapshot(user.csrf_token);
+      setNasStatus(latest);
+      const [hist, al, ov] = await Promise.all([
+        apiClient.listNasHistory(15),
+        apiClient.listNasAlerts(true),
+        apiClient.getOverview(),
+      ]);
+      setNasHistory(hist);
+      setNasAlerts(al);
+      setOverview(ov);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Failed to collect NAS snapshot.");
+    } finally {
+      setNasCollectBusy(false);
     }
   };
 
@@ -461,48 +511,288 @@ export const App: React.FC = () => {
 
         {activeSection === "nas" && overview && (
           <section aria-label="NAS Guardian Details">
-            <h2>NAS Guardian (CPU, RAM, Storage Mounts &amp; Containers)</h2>
-            <div className="card">
-              <div className="card-header">
-                <h3 className="card-title">Host Telemetry &amp; Mount Integrity</h3>
-                <StatusBadge value={overview.domains.nas_guardian.status} />
-              </div>
-              <p>
-                Target profile: Debian 12 Bookworm · Intel N200 · ext4 HDDs (<code>/mnt/disk1</code>
-                , <code>/mnt/disk2</code>).
-              </p>
-              <p style={{ color: "var(--text-muted)" }}>
-                In Phase 01 Foundation, no host paths or Docker sockets are mounted into HomeAgentP.
-                All metrics below explicitly display <code>UNAVAILABLE</code> until the scoped
-                read-only adapter in Phase 02 is approved.
-              </p>
-              <ul className="kv-list">
-                <li>
-                  <span>CPU Load</span>
-                  <StatusBadge value={overview.domains.nas_guardian.metrics.cpu_load} />
-                </li>
-                <li>
-                  <span>Memory Usage</span>
-                  <StatusBadge value={overview.domains.nas_guardian.metrics.ram_usage} />
-                </li>
-                <li>
-                  <span>/mnt/disk1 Mount Check</span>
-                  <StatusBadge
-                    value={overview.domains.nas_guardian.metrics.mounts["/mnt/disk1"]}
-                  />
-                </li>
-                <li>
-                  <span>/mnt/disk2 Mount Check</span>
-                  <StatusBadge
-                    value={overview.domains.nas_guardian.metrics.mounts["/mnt/disk2"]}
-                  />
-                </li>
-                <li>
-                  <span>SMART Disk Health</span>
-                  <StatusBadge value={overview.domains.nas_guardian.metrics.smart_health} />
-                </li>
-              </ul>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: "0.75rem",
+                marginBottom: "1rem",
+              }}
+            >
+              <h2 style={{ margin: 0 }}>
+                NAS Guardian (CPU, RAM, Mount Guardian &amp; Container Health)
+              </h2>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => void handleCollectNasSnapshot()}
+                disabled={nasCollectBusy}
+              >
+                {nasCollectBusy ? "Collecting..." : "Collect Read-Only Snapshot"}
+              </button>
             </div>
+
+            {nasStatus ? (
+              <>
+                <div className="card-grid">
+                  <div className="card">
+                    <div className="card-header">
+                      <h3 className="card-title">CPU &amp; Load Pressure</h3>
+                      <StatusBadge value={nasStatus.cpu.status} />
+                    </div>
+                    <ul className="kv-list">
+                      <li>
+                        <span>CPU Usage</span>
+                        <strong>{formatPercent(nasStatus.cpu.usage_percent)}</strong>
+                      </li>
+                      <li>
+                        <span>Logical Cores</span>
+                        <strong>{nasStatus.cpu.logical_cores ?? "unavailable"}</strong>
+                      </li>
+                      <li>
+                        <span>Load Average (1m / 5m / 15m)</span>
+                        <code>
+                          {nasStatus.cpu.load_1m !== null
+                            ? `${nasStatus.cpu.load_1m.toFixed(2)} / ${nasStatus.cpu.load_5m?.toFixed(2) ?? "-"} / ${nasStatus.cpu.load_15m?.toFixed(2) ?? "-"}`
+                            : "unavailable"}
+                        </code>
+                      </li>
+                      <li>
+                        <span>PSI Pressure (some avg10 / avg60)</span>
+                        <code>
+                          {nasStatus.cpu.pressure.some
+                            ? `${nasStatus.cpu.pressure.some.avg10.toFixed(2)}% / ${nasStatus.cpu.pressure.some.avg60.toFixed(2)}%`
+                            : "unavailable"}
+                        </code>
+                      </li>
+                      <li>
+                        <span>Thresholds (Warn / Crit)</span>
+                        <code>
+                          {nasStatus.thresholds.cpu_warn_percent}% /{" "}
+                          {nasStatus.thresholds.cpu_critical_percent}%
+                        </code>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <div className="card">
+                    <div className="card-header">
+                      <h3 className="card-title">RAM, Swap &amp; Memory Pressure</h3>
+                      <StatusBadge value={nasStatus.memory.status} />
+                    </div>
+                    <ul className="kv-list">
+                      <li>
+                        <span>RAM Usage</span>
+                        <strong>
+                          {formatPercent(nasStatus.memory.usage_percent)} (
+                          {formatBytes(nasStatus.memory.used_bytes)} /{" "}
+                          {formatBytes(nasStatus.memory.total_bytes)})
+                        </strong>
+                      </li>
+                      <li>
+                        <span>Available Memory</span>
+                        <strong>{formatBytes(nasStatus.memory.available_bytes)}</strong>
+                      </li>
+                      <li>
+                        <span>Swap Usage</span>
+                        <code>
+                          {formatPercent(nasStatus.memory.swap_usage_percent)} (
+                          {formatBytes(nasStatus.memory.swap_used_bytes)} /{" "}
+                          {formatBytes(nasStatus.memory.swap_total_bytes)})
+                        </code>
+                      </li>
+                      <li>
+                        <span>Memory PSI (some / full avg10)</span>
+                        <code>
+                          {nasStatus.memory.pressure.some
+                            ? `${nasStatus.memory.pressure.some.avg10.toFixed(2)}% / ${nasStatus.memory.pressure.full?.avg10.toFixed(2) ?? "0.00"}%`
+                            : "unavailable"}
+                        </code>
+                      </li>
+                      <li>
+                        <span>Thresholds (Warn / Crit)</span>
+                        <code>
+                          {nasStatus.thresholds.ram_warn_percent}% /{" "}
+                          {nasStatus.thresholds.ram_critical_percent}%
+                        </code>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <div className="card">
+                    <div className="card-header">
+                      <h3 className="card-title">Adapter &amp; Storage Safety Policy</h3>
+                      <StatusBadge value={nasStatus.status} />
+                    </div>
+                    <ul className="kv-list">
+                      <li>
+                        <span>Adapter Enabled</span>
+                        <StatusBadge value={nasStatus.adapter_enabled ? "ok" : "unavailable"} />
+                      </li>
+                      <li>
+                        <span>Collection Interval / Retention</span>
+                        <code>
+                          {nasStatus.collection_interval_seconds}s /{" "}
+                          {nasStatus.history_retention_limit} snapshots
+                        </code>
+                      </li>
+                      <li>
+                        <span>HDD Write Operations</span>
+                        <code>{nasStatus.storage_safety.hdd_write_operations}</code>
+                      </li>
+                      <li>
+                        <span>Media Directory Tree Crawled</span>
+                        <StatusBadge
+                          value={nasStatus.storage_safety.media_tree_crawled ? "yes" : "no"}
+                        />
+                      </li>
+                      <li>
+                        <span>Docker Socket Used</span>
+                        <StatusBadge
+                          value={nasStatus.storage_safety.docker_socket_used ? "yes" : "no"}
+                        />
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+
+                <div className="card">
+                  <div className="card-header">
+                    <h3 className="card-title">
+                      Mount Guardian (<code>/</code>, <code>/mnt/disk1</code>,{" "}
+                      <code>/mnt/disk2</code>)
+                    </h3>
+                    <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                      Detects missing directories and unmounted root-filesystem fallbacks
+                    </span>
+                  </div>
+                  <ul className="kv-list">
+                    {Object.values(nasStatus.mounts).map((mnt) => (
+                      <li key={mnt.path}>
+                        <div>
+                          <strong>
+                            <code>{mnt.path}</code>
+                          </strong>{" "}
+                          {mnt.device ? (
+                            <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                              ({mnt.device} · {mnt.fstype || "unknown"})
+                            </span>
+                          ) : null}
+                          <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                            {mnt.reason ||
+                              `Used ${formatBytes(mnt.used_bytes)} of ${formatBytes(mnt.total_bytes)} (${formatBytes(mnt.available_bytes)} free)`}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                          {mnt.usage_percent !== null && (
+                            <code>{mnt.usage_percent.toFixed(1)}%</code>
+                          )}
+                          <StatusBadge value={mnt.status} />
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="card-grid">
+                  <div className="card">
+                    <div className="card-header">
+                      <h3 className="card-title">Container Health (No Docker Socket)</h3>
+                      <StatusBadge value={nasStatus.containers.status} />
+                    </div>
+                    <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                      {nasStatus.containers.reason || `Source: ${nasStatus.containers.source}`}
+                    </p>
+                    <ul className="kv-list">
+                      {Object.values(nasStatus.containers.services).map((svc) => (
+                        <li key={svc.name}>
+                          <div>
+                            <strong style={{ textTransform: "capitalize" }}>{svc.name}</strong>
+                            <div style={{ fontSize: "0.76rem", color: "var(--text-muted)" }}>
+                              {svc.memory_bytes !== null
+                                ? `Mem: ${formatBytes(svc.memory_bytes)} / ${formatBytes(svc.memory_limit_bytes)} (${formatPercent(svc.memory_percent)}) · Restarts: ${svc.restart_count ?? 0}`
+                                : svc.reason || "No snapshot configured"}
+                            </div>
+                          </div>
+                          <StatusBadge value={svc.status} />
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="card">
+                    <div className="card-header">
+                      <h3 className="card-title">NAS Alerts ({nasAlerts.length})</h3>
+                      <StatusBadge
+                        value={
+                          nasStatus.alerts.some((a) => a.severity === "critical")
+                            ? "critical"
+                            : nasStatus.alerts.length > 0
+                              ? "warning"
+                              : "ok"
+                        }
+                      />
+                    </div>
+                    {nasAlerts.length === 0 ? (
+                      <p style={{ fontSize: "0.84rem", color: "var(--text-muted)" }}>
+                        No NAS alerts recorded yet.
+                      </p>
+                    ) : (
+                      <ul className="kv-list">
+                        {nasAlerts.slice(0, 10).map((alert) => (
+                          <li key={alert.alert_key}>
+                            <div>
+                              <strong>{alert.target}</strong> ({alert.category})
+                              <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                                {alert.message}
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+                              <StatusBadge value={alert.severity} />
+                              <StatusBadge value={alert.status} />
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+
+                <div className="card">
+                  <h3 className="card-title">
+                    Recent Metrics History ({nasHistory.length} snapshots)
+                  </h3>
+                  {nasHistory.length === 0 ? (
+                    <p style={{ fontSize: "0.84rem", color: "var(--text-muted)" }}>
+                      No persisted snapshots yet. Click &ldquo;Collect Read-Only Snapshot&rdquo; to
+                      record a baseline.
+                    </p>
+                  ) : (
+                    <ul className="kv-list">
+                      {nasHistory.slice(0, 8).map((item) => (
+                        <li key={item.id}>
+                          <span>
+                            <code>{item.collected_at}</code> · CPU:{" "}
+                            <strong>{formatPercent(item.cpu_usage_percent)}</strong> · Load 1m:{" "}
+                            <code>
+                              {item.load_1m !== null ? item.load_1m.toFixed(2) : "unavailable"}
+                            </code>{" "}
+                            · RAM: <strong>{formatPercent(item.ram_usage_percent)}</strong>
+                          </span>
+                          <StatusBadge value={item.adapter_status} />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="card">
+                <p>Loading NAS Guardian status...</p>
+              </div>
+            )}
           </section>
         )}
 

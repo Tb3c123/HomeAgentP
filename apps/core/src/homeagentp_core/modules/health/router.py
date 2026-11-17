@@ -16,6 +16,7 @@ from homeagentp_core.auth.security import (
 from homeagentp_core.config import Settings
 from homeagentp_core.db.connection import db_session
 from homeagentp_core.db.migrator import get_current_schema_version
+from homeagentp_core.modules.nas.collector import collect_nas_telemetry
 
 router = APIRouter(prefix="/api/v1", tags=["health-overview"])
 
@@ -43,7 +44,8 @@ def get_overview(
     """Return honest system overview across all HomeAgentP domains.
 
     Never fabricates live NAS, Media, Download, or Home Assistant telemetry.
-    Unconfigured Phase 02-05 integrations explicitly report status='unavailable'.
+    When HOMEAGENTP_NAS_ADAPTER_ENABLED=false, NAS Guardian reports status='unavailable'.
+    When enabled, it reports read-only telemetry from /proc and mount checks.
     """
     with db_session(settings.db_path) as conn:
         total_projects = int(conn.execute("SELECT COUNT(*) FROM projects").fetchone()[0])
@@ -62,6 +64,34 @@ def get_overview(
         )
         total_reports = int(conn.execute("SELECT COUNT(*) FROM reports").fetchone()[0])
         total_audit_events = int(conn.execute("SELECT COUNT(*) FROM audit_logs").fetchone()[0])
+        nas_snapshots_count = int(
+            conn.execute("SELECT COUNT(*) FROM nas_metric_snapshots").fetchone()[0]
+        )
+        nas_alerts_count = int(conn.execute("SELECT COUNT(*) FROM nas_alerts").fetchone()[0])
+
+    nas_snap = collect_nas_telemetry(settings, sample_delay_seconds=0.0)
+    mounts_map = {
+        str(m["mount_point"]): str(m["status"])
+        for m in nas_snap["mounts"]
+        if str(m["mount_point"]) in set(settings.nas_required_mounts)
+    }
+    for req_mp in settings.nas_required_mounts:
+        mounts_map.setdefault(req_mp, "unavailable")
+
+    cpu_load_str = (
+        f"{nas_snap['cpu']['usage_percent']}%"
+        if nas_snap["cpu"]["usage_percent"] is not None
+        else (
+            f"load {nas_snap['cpu']['load_1m']}"
+            if nas_snap["cpu"]["load_1m"] is not None
+            else "unavailable"
+        )
+    )
+    ram_usage_str = (
+        f"{nas_snap['memory']['usage_percent']}%"
+        if nas_snap["memory"]["usage_percent"] is not None
+        else "unavailable"
+    )
 
     return {
         "architecture": "B+ (Antigravity-first, Dashboard-light)",
@@ -75,22 +105,22 @@ def get_overview(
             "scripts_allowlisted": allowlisted_scripts,
             "reports_total": total_reports,
             "audit_events": total_audit_events,
+            "nas_snapshots": nas_snapshots_count,
+            "nas_alerts": nas_alerts_count,
         },
         "domains": {
             "nas_guardian": {
                 "title": "NAS Guardian",
-                "status": "unavailable",
+                "status": nas_snap["adapter_status"],
                 "phase": "Phase 02",
-                "reason": "Read-only NAS telemetry adapter not enabled in Phase 01 Foundation.",
+                "reason": nas_snap["reason"]
+                or "Read-only NAS Guardian telemetry active.",
                 "metrics": {
-                    "cpu_load": "unavailable",
-                    "ram_usage": "unavailable",
-                    "mounts": {
-                        "/mnt/disk1": "unavailable",
-                        "/mnt/disk2": "unavailable",
-                    },
+                    "cpu_load": cpu_load_str,
+                    "ram_usage": ram_usage_str,
+                    "mounts": mounts_map,
                     "smart_health": "unavailable",
-                    "containers": "unavailable",
+                    "containers": nas_snap["containers"]["status"],
                 },
             },
             "media": {

@@ -27,7 +27,9 @@ HomeAgentP is a personal AI workspace and home NAS operations platform.
 
 ## Status
 
-Phase 01 Foundation implemented on `feature/phase-01-foundation` and verified with isolated unit/integration tests (`pytest`, `ruff`, `mypy`, `tsc`, `vitest`, `vite build`). **Not deployed to NAS (`NOT_DEPLOYED`).**
+- **Phase 01 Foundation (`feature/phase-01-foundation`, PR #1)**: Implemented, hardened (`F01`–`F04`), and verified with isolated unit/integration tests (`pytest`, `ruff`, `mypy`, `tsc`, `vitest`, `vite build`, `npm audit`).
+- **Phase 02 NAS Guardian (`feature/phase-02-nas-guardian`)**: Implemented at the source code level (read-only CPU/RAM/PSI `/proc` parsers, Mount Guardian `/mnt/disk1` & `/mnt/disk2` with unmounted root-filesystem fallback detection, read-only Container Health snapshot adapter without Docker socket, alert thresholds, and SQLite metric history).
+- **Production Deployment Status**: **`NOT_DEPLOYED`**. Pre-production checklist items (Docker Compose staging verification, stopped-DB restore drill, and existing Antigravity terminal container `ttyd` port `7681` security hardening) must be completed before any NAS deployment.
 
 ---
 
@@ -66,7 +68,7 @@ npm run build
    cd apps/web
    npm run dev
    ```
-4. See [docs/operations/01-runbook-and-rollback.md](docs/operations/01-runbook-and-rollback.md) for containerized local staging (`deploy/docker-compose.dev.yml`), atomic SQLite backup/restore verification, TOCTOU threat model notes, and rollback procedures.
+4. See [docs/operations/01-runbook-and-rollback.md](docs/operations/01-runbook-and-rollback.md) and [docs/plans/02-nas-guardian.md](docs/plans/02-nas-guardian.md) for containerized local staging (`deploy/docker-compose.dev.yml`), Phase 02 NAS Guardian read-only telemetry configuration, atomic SQLite backup/restore verification, TOCTOU threat model notes, and rollback procedures.
 
 ---
 
@@ -77,8 +79,8 @@ npm run build
 1. Đọc [Product scope](docs/00-project-scope.md): HomeAgentP bao gồm NAS, media, downloads, Home Assistant, alerts, AI workspace, developer, security; **không chỉ Dev**.
 2. Đọc [AGENTS.md](AGENTS.md): các giới hạn mà AI coding agent và nhà thầu phải tuân thủ.
 3. Đọc [Antigravity handoff & ready-to-copy prompts](docs/ANTIGRAVITY_HANDOFF.md): cách kết nối GitHub bằng Antigravity chính thức, quy trình giao việc, PR và deployment authorization.
-4. Xem [Phase 01 — Foundation](docs/plans/01-foundation.md) và [Operations Runbook](docs/operations/01-runbook-and-rollback.md).
+4. Xem [Phase 01 — Foundation](docs/plans/01-foundation.md), [Phase 02 — NAS Guardian](docs/plans/02-nas-guardian.md) và [Operations Runbook](docs/operations/01-runbook-and-rollback.md).
 5. Mỗi Phase bắt buộc có Git branch/PR, evidence thực tế và owner review. Merge code không tự cấp quyền triển khai.
-6. Chỉ sau khi Phase 01 đã được kiểm thử và review, xin **phê duyệt triển khai NAS riêng** với commands, ports, volumes, secrets, backup và rollback.
+6. Chỉ sau khi Phase 01 & 02 đã được kiểm thử, review và hoàn tất Pre-Production Checklist, xin **phê duyệt triển khai NAS riêng** với commands, ports, volumes, secrets, backup và rollback.
 
 **Safety notice:** NAS đang có container terminal Antigravity cũ dùng root và Docker Socket RW, với port ttyd rộng. Không dùng container đó để chạy AI-generated deployment scripts cho đến khi security review và hardening được hoàn tất. Không lưu credentials trong repo.

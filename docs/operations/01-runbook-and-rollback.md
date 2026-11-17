@@ -142,3 +142,54 @@ print('Isolated restore verified:', restored)
 | `401 Unauthorized` on Dashboard or API calls | Session expired or cookie not sent over HTTP when `HOMEAGENTP_COOKIE_SECURE=true`. | For localhost HTTP dev, set `HOMEAGENTP_COOKIE_SECURE=false` in `.env` and sign in again. |
 | `403 Forbidden: Missing or invalid CSRF token` | Write request (`POST`/`PATCH`) missing `X-CSRF-Token` header or using an outdated token. | Refresh `/api/v1/auth/me` or sign out and back in so the UI holds the active session's CSRF token. |
 | `403 Forbidden: Symlinks are prohibited` / `Hardlinked files (st_nlink > 1) are prohibited` / `SHA-256 checksum mismatch` | Script file in `HOMEAGENTP_SCRIPTS_DIR` is a symlink, hardlink, or was edited without updating `manifest.json`. | Replace with a regular single-link file and update `manifest.json` SHA-256 after human review. |
+
+---
+
+## 7. Phase 02 — NAS Guardian Configuration & Operational Notes
+
+### 7.1. Read-Only NAS Adapter Settings (`.env`)
+
+By default, `HOMEAGENTP_NAS_ADAPTER_ENABLED=false` so development environments never fabricate live NAS metrics and instead return `unavailable`. To enable read-only telemetry collection in staging:
+
+```dotenv
+HOMEAGENTP_NAS_ADAPTER_ENABLED=true
+HOMEAGENTP_NAS_PROC_ROOT=/proc
+HOMEAGENTP_NAS_ROOT_MOUNT_PATH=/
+HOMEAGENTP_NAS_REQUIRED_MOUNTS=/mnt/disk1,/mnt/disk2
+HOMEAGENTP_NAS_EXPECTED_SERVICES=jellyfin,sonarr,radarr,bazarr,prowlarr,seerr,qbittorrent,adguard,portainer
+HOMEAGENTP_NAS_CONTAINER_SNAPSHOT_REL_PATH=
+HOMEAGENTP_NAS_COLLECTION_INTERVAL_SECONDS=60
+HOMEAGENTP_NAS_HISTORY_RETENTION_LIMIT=500
+```
+
+### 7.2. Mount Guardian & Unmounted Fallback Detection (`/mnt/disk1`, `/mnt/disk2`)
+
+- **Problem:** When an external/internal data drive (`/mnt/disk1` or `/mnt/disk2`) is accidentally unmounted on Linux, the empty mount directory on `/` still exists. A naive `os.statvfs("/mnt/disk1")` call would report the root SSD's capacity and free space, hiding the lost mount and risking writes filling up `/`.
+- **Mitigation in `inspect_mount_point()`:**
+  1. Verifies the path is not a symlink (`lstat`).
+  2. Parses `/proc/mounts` to check if the canonical mount point is an active mount entry.
+  3. Compares `st_dev` of the mount directory against `st_dev` of `HOMEAGENTP_NAS_ROOT_MOUNT_PATH` (`/`).
+  4. If the directory exists on disk (`S_ISDIR`) but is absent from `/proc/mounts` or shares `st_dev` with `/`, Mount Guardian marks it `status: "unmounted_fallback"`, `is_root_fallback: true`, suppresses misleading disk capacity numbers (`null`), and emits a `critical` alert (`mount:<path>:unmounted_fallback`).
+- **Storage Safety:** Mount Guardian only calls `lstat` and `statvfs` on the top-level mount point path. It performs **zero writes** to HDDs and **never walks media subdirectories**.
+
+### 7.3. Container Health Without `/var/run/docker.sock`
+
+- Mounting `/var/run/docker.sock` into `homeagentp-core` is **strictly prohibited** by `AGENTS.md` (equivalent to host root).
+- Instead, `homeagentp-core` reads an optional, allowlisted read-only JSON snapshot (`HOMEAGENTP_NAS_CONTAINER_SNAPSHOT_REL_PATH`) inside `HOMEAGENTP_REPORTS_DIR` via the hardened `read_allowlisted_text_file()` descriptor reader (`O_NOFOLLOW`, `st_nlink == 1`).
+- If `HOMEAGENTP_NAS_CONTAINER_SNAPSHOT_REL_PATH` is empty or unreadable, container health honestly reports `status: "unavailable"` without breaching container isolation.
+
+---
+
+## 8. Mandatory Pre-Production Checklist (Must Complete Before Any NAS Deployment)
+
+Before requesting owner approval to deploy HomeAgentP onto the production Debian 12 / CasaOS NAS:
+
+1. **Docker Compose Staging Verification (Phase 01 F05 & Phase 02):**
+   - Run `deploy/docker-compose.dev.yml` on an isolated Linux staging host with a Docker daemon.
+   - Verify container startup, healthcheck (`/api/v1/health`), Nginx reverse proxy, authentication, CSRF enforcement, SQLite persistence across restarts, read-only rootfs, and non-root UID/GID (`10001:10001` and `101:101`).
+2. **Stopped-Database Restore Drill:**
+   - Stop `homeagentp-core` completely, run `restore_sqlite_database()` to replace the active SQLite database file from a verified backup, run `PRAGMA integrity_check;` and `PRAGMA foreign_key_check;`, and restart `homeagentp-core` to confirm clean recovery.
+3. **Security Review & Hardening of Existing Antigravity Terminal Container (`ttyd` Port `7681`):**
+   - Audit the pre-existing Antigravity terminal container on the NAS (currently running as `root`, mounting `/var/run/docker.sock` RW, and exposing `ttyd` on `0.0.0.0:7681`).
+   - Restrict network exposure (bind to localhost/VPN only), remove unnecessary root/Docker socket privileges, and **never** use that container to run unreviewed AI-generated deployment scripts.
+
