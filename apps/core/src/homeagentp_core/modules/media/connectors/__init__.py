@@ -2,6 +2,7 @@
 
 from homeagentp_core.modules.media.connectors.bazarr import BazarrAdapter
 from homeagentp_core.modules.media.connectors.jellyfin import JellyfinAdapter
+from homeagentp_core.modules.media.connectors.prowlarr import ProwlarrAdapter
 from homeagentp_core.modules.media.connectors.qbittorrent import (
     QBITTORRENT_CREDENTIAL_NOTICE,
     QBittorrentAdapter,
@@ -13,6 +14,7 @@ __all__ = [
     "QBITTORRENT_CREDENTIAL_NOTICE",
     "BazarrAdapter",
     "JellyfinAdapter",
+    "ProwlarrAdapter",
     "QBittorrentAdapter",
     "RadarrAdapter",
     "SonarrAdapter",
