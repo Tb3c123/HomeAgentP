@@ -1065,3 +1065,121 @@ def test_r03_security_hardening_regressions(monkeypatch: pytest.MonkeyPatch) -> 
     assert size_exc.value.error_code == "response_too_large"
 
 
+def test_r03_dns_pinning_fail_closed_and_rebinding_protection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify DNS fail-closed, single-lookup IP pinning against rebinding, and LAN/IPv6/SNI."""
+    import socket
+
+    from httpcore._backends.sync import SyncBackend
+
+    from homeagentp_core.modules.media.errors import MediaSecurityError
+    from homeagentp_core.modules.media.http_client import SafeMediaHttpClient
+    from homeagentp_core.modules.media.security import (
+        resolve_and_validate_host,
+        validate_resolved_dns,
+    )
+
+    # 1. DNS resolution failure must fail closed (not return silently)
+    def _fail_dns(host: str, port: object, **kwargs: object) -> list[object]:
+        raise socket.gaierror("Name or service not known")
+
+    monkeypatch.setattr(socket, "getaddrinfo", _fail_dns)
+    with pytest.raises(MediaSecurityError) as dns_fail_exc:
+        validate_resolved_dns("nonexistent.local")
+    assert dns_fail_exc.value.error_code == "dns_resolution_failed"
+
+    client_fail = SafeMediaHttpClient(
+        base_url="http://nonexistent.local:8096",
+        allowed_hosts=["nonexistent.local"],
+        timeout_seconds=2.0,
+        max_response_bytes=1024,
+        allowed_get_prefixes=("/System/Info",),
+    )
+    with pytest.raises(MediaSecurityError) as client_fail_exc:
+        client_fail.get_json("/System/Info")
+    assert client_fail_exc.value.error_code == "dns_resolution_failed"
+
+    # 2. Mixed/blocked IP in DNS response is rejected
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda host, port, **kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.50", 0)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 0)),
+        ],
+    )
+    with pytest.raises(MediaSecurityError) as mixed_exc:
+        resolve_and_validate_host("dual.local", 8096)
+    assert mixed_exc.value.error_code == "ssrf_blocked"
+
+    # 3. Single-lookup DNS pinning: even if a second lookup would return 169.254.169.254,
+    #    SafeDnsPinningBackend resolves ONCE and connects directly to the pinned LAN IP.
+    dns_calls = 0
+
+    def _rebinding_dns(host: str, port: object, **kwargs: object) -> list[object]:
+        nonlocal dns_calls
+        dns_calls += 1
+        if dns_calls == 1:
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.50", 0))]
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 0))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", _rebinding_dns)
+    connected_targets: list[tuple[str, int]] = []
+    tls_hostnames: list[object] = []
+
+    class _FakeStream:
+        def read(self, max_bytes: int, timeout: float | None = None) -> bytes:
+            return b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}"
+
+        def write(self, buffer: bytes, timeout: float | None = None) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+        def start_tls(self, **kwargs: object) -> _FakeStream:
+            tls_hostnames.append(kwargs.get("server_hostname"))
+            return self
+
+        def get_extra_info(self, info: str) -> object:
+            return None
+
+    def _fake_connect_tcp(
+        self: SyncBackend,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: object = None,
+    ) -> _FakeStream:
+        connected_targets.append((host, port))
+        return _FakeStream()
+
+    monkeypatch.setattr(SyncBackend, "connect_tcp", _fake_connect_tcp)
+
+    pinned_client = SafeMediaHttpClient(
+        base_url="https://nas.local:8989",
+        allowed_hosts=["nas.local"],
+        timeout_seconds=2.0,
+        max_response_bytes=1024,
+        allowed_get_prefixes=("/System/Info",),
+    )
+    assert pinned_client.get_json("/System/Info") == {}
+    assert dns_calls == 1
+    assert connected_targets == [("192.168.1.50", 8989)]
+    assert tls_hostnames == ["nas.local"]
+
+    # 4. Allowlisted IPv6 ULA / LAN literal works and preserves IPv6 target
+    connected_targets.clear()
+    ipv6_client = SafeMediaHttpClient(
+        base_url="http://[fd00::10]:8096",
+        allowed_hosts=["fd00::10"],
+        timeout_seconds=2.0,
+        max_response_bytes=1024,
+        allowed_get_prefixes=("/System/Info",),
+    )
+    assert ipv6_client.get_json("/System/Info") == {}
+    assert connected_targets == [("fd00::10", 8096)]
+
+

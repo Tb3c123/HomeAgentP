@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from typing import Any
-from urllib.parse import urlsplit
 
+import httpcore
 import httpx
+from httpcore._backends.sync import SyncBackend
 
 from homeagentp_core.logging import redact_text
 from homeagentp_core.modules.media.errors import (
@@ -18,7 +20,7 @@ from homeagentp_core.modules.media.errors import (
     MediaTimeoutError,
 )
 from homeagentp_core.modules.media.security import (
-    validate_resolved_dns,
+    resolve_and_validate_host,
     validate_service_url,
 )
 
@@ -29,6 +31,37 @@ def _matches_segment_prefix(path: str, prefix: str) -> bool:
     if not clean_prefix:
         return path == "/"
     return path == clean_prefix or path.startswith(f"{clean_prefix}/")
+
+
+class SafeDnsPinningBackend(SyncBackend):
+    """Network backend that performs a single DNS lookup, validates IPs, and pins the TCP target."""
+
+    def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: Iterable[Any] | None = None,
+    ) -> httpcore.NetworkStream:
+        validated_ips = resolve_and_validate_host(host, port)
+        pinned_ip = validated_ips[0]
+        return super().connect_tcp(
+            pinned_ip,
+            port,
+            timeout=timeout,
+            local_address=local_address,
+            socket_options=socket_options,
+        )
+
+
+def _build_pinned_transport() -> httpx.HTTPTransport:
+    """Build an httpx.HTTPTransport using SafeDnsPinningBackend and ignoring env proxies."""
+    transport = httpx.HTTPTransport(trust_env=False)
+    pool = getattr(transport, "_pool", None)
+    if isinstance(pool, httpcore.ConnectionPool):
+        pool._network_backend = SafeDnsPinningBackend()
+    return transport
 
 
 class SafeMediaHttpClient:
@@ -47,7 +80,6 @@ class SafeMediaHttpClient:
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self.base_url = validate_service_url(base_url, allowed_hosts)
-        self._hostname = (urlsplit(self.base_url).hostname or "").strip().lower()
         self._timeout_seconds = timeout_seconds
         self._max_response_bytes = max_response_bytes
         self._allowed_get_prefixes = allowed_get_prefixes
@@ -109,20 +141,20 @@ class SafeMediaHttpClient:
         form_data: dict[str, str] | None = None,
         extra_headers: dict[str, str] | None = None,
     ) -> tuple[int, bytes, httpx.Headers, dict[str, str]]:
-        """Execute a validated HTTP request with redirect blocking and streaming byte caps."""
+        """Execute a validated HTTP request with DNS-pinned transport and redirect blocking."""
         self._verify_path(method, path)
-        if self._transport is None:
-            validate_resolved_dns(self._hostname)
         target_url = f"{self.base_url}{path}"
         merged_headers = {**self._headers, **(extra_headers or {})}
+        active_transport = self._transport or _build_pinned_transport()
 
         try:
             with httpx.Client(
                 timeout=httpx.Timeout(self._timeout_seconds),
                 follow_redirects=False,
+                trust_env=False,
                 headers=merged_headers,
                 cookies=self._cookies,
-                transport=self._transport,
+                transport=active_transport,
             ) as client:
                 with client.stream(
                     method.upper(),

@@ -9,10 +9,12 @@ Security & Threat Notes:
   multicast, and link-local / cloud metadata (`169.254.0.0/16`, `fe80::/10`) ranges.
 - Private RFC1918 LAN and loopback addresses are permitted *only* when explicitly listed
   in `HOMEAGENTP_MEDIA_ALLOWED_HOSTS` so local NAS services remain reachable.
-- DNS rebinding mitigation: when `SafeMediaHttpClient` runs without a mock transport,
-  DNS resolution is checked prior to request dispatch; for production NAS deployments,
-  static LAN IPs or `/etc/hosts` entries in `HOMEAGENTP_MEDIA_ALLOWED_HOSTS` are
-  recommended to eliminate TOCTOU DNS rebinding windows.
+- DNS resolution fails closed: any `socket.getaddrinfo()` error or empty result raises
+  `MediaSecurityError("dns_resolution_failed", ...)`.
+- DNS rebinding mitigation: `SafeMediaHttpClient` pins TCP connections to the single
+  validated IP address resolved inside `SafeDnsPinningBackend.connect_tcp`, eliminating
+  TOCTOU windows between DNS validation and socket connection while preserving
+  hostname-based HTTPS TLS certificate verification (SNI).
 """
 
 from __future__ import annotations
@@ -44,19 +46,30 @@ def _validate_ip_object(
         )
 
 
-def validate_resolved_dns(hostname: str) -> None:
-    """Validate all DNS-resolved IPs for a hostname against dangerous SSRF ranges."""
+def resolve_and_validate_host(hostname: str, port: int | None = None) -> list[str]:
+    """Resolve hostname once, fail closed on DNS error, and validate all returned IPs."""
+    cleaned = hostname.strip().lower()
+    if not cleaned:
+        raise MediaSecurityError("invalid_url", "Service URL is missing a valid hostname.")
+
     try:
-        ipaddress.ip_address(hostname)
-        return
+        ip_obj = ipaddress.ip_address(cleaned)
     except ValueError:
-        pass
+        ip_obj = None
+
+    if ip_obj is not None:
+        _validate_ip_object(ip_obj, cleaned)
+        return [str(ip_obj)]
 
     try:
-        infos = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
-    except OSError:
-        return
+        infos = socket.getaddrinfo(cleaned, port, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        raise MediaSecurityError(
+            "dns_resolution_failed",
+            f"DNS resolution failed for '{cleaned}'.",
+        ) from exc
 
+    validated_ips: list[str] = []
     for info in infos:
         sockaddr = info[4]
         if not sockaddr:
@@ -66,7 +79,22 @@ def validate_resolved_dns(hostname: str) -> None:
             resolved_ip = ipaddress.ip_address(raw_ip)
         except ValueError:
             continue
-        _validate_ip_object(resolved_ip, hostname)
+        _validate_ip_object(resolved_ip, cleaned)
+        ip_str = str(resolved_ip)
+        if ip_str not in validated_ips:
+            validated_ips.append(ip_str)
+
+    if not validated_ips:
+        raise MediaSecurityError(
+            "dns_resolution_failed",
+            f"DNS resolution returned no usable addresses for '{cleaned}'.",
+        )
+    return validated_ips
+
+
+def validate_resolved_dns(hostname: str) -> list[str]:
+    """Validate all DNS-resolved IPs for a hostname, failing closed on lookup errors."""
+    return resolve_and_validate_host(hostname, None)
 
 
 def validate_service_url(raw_url: str, allowed_hosts: list[str]) -> str:
