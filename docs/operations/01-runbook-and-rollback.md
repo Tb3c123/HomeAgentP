@@ -156,6 +156,7 @@ Inside a Docker/CasaOS container, `/proc`, `/`, and `/proc/mounts` belong to the
   2. **`direct_host_fs` Mode**: Requires explicit read-only host mounts (`HOMEAGENTP_NAS_PROC_ROOT=/host/proc`, `HOMEAGENTP_NAS_ROOT_MOUNT_PATH=/host/root`). If configured with container-local `/proc`, `/`, or if the mounts table reports a container `overlay`/`aufs`/`shm` root filesystem, `homeagentp-core` rejects the boundary, returns `status: "unavailable"` (`host_verified: false`), and **never** emits false HDD unmount alerts.
 
 ```dotenv
+HOMEAGENTP_HOST_REPORTS_DIR=/var/lib/homeagentp/reports
 HOMEAGENTP_NAS_ADAPTER_ENABLED=true
 HOMEAGENTP_NAS_TELEMETRY_MODE=host_snapshot
 HOMEAGENTP_NAS_HOST_SNAPSHOT_REL_PATH=nas_host_snapshot.json
@@ -168,7 +169,52 @@ HOMEAGENTP_NAS_MIN_PERSIST_INTERVAL_SECONDS=15
 HOMEAGENTP_NAS_HISTORY_RETENTION_LIMIT=120
 ```
 
-### 7.2. Host & Container Snapshot JSON Schemas & Freshness (`P02-F03`)
+### 7.2. Host Snapshot Directory, Non-Root Permissions & Docker Compose Handoff
+
+To ensure the systemd host producer runs **non-root** while `homeagentp-core` (running as container `user: "10001:10001"`) reads the exact snapshot file through a read-only (`:ro`) bind mount without Docker Socket or privileged mode:
+
+1. **Path Synchronization Between Host Systemd and Docker Compose:**
+   - **Host Producer Output (`deploy/systemd/homeagentp-nas-host-snapshot.service`):**
+     `/var/lib/homeagentp/reports/nas_host_snapshot.json`
+   - **Docker Compose Read-Only Bind Mount (`deploy/docker-compose.dev.yml`):**
+     `${HOMEAGENTP_HOST_REPORTS_DIR:-/var/lib/homeagentp/reports}:/config/reports:ro`
+   - **Container Environment (`homeagentp-core`):**
+     `HOMEAGENTP_REPORTS_DIR=/config/reports` and `HOMEAGENTP_NAS_HOST_SNAPSHOT_REL_PATH=nas_host_snapshot.json` (reads `/config/reports/nas_host_snapshot.json`).
+
+2. **Create Host Snapshot Directory & Non-Root Ownership (`10001:10001`):**
+   ```bash
+   # 1. Create dedicated non-root system group/user matching homeagentp-core UID/GID 10001:10001
+   sudo groupadd -g 10001 -r homeagentp || true
+   sudo useradd -u 10001 -g 10001 -r -s /usr/sbin/nologin -d /var/lib/homeagentp homeagentp || true
+
+   # 2. Create the snapshot directory owned by 10001:10001 with mode 0755 (rwxr-xr-x)
+   sudo install -d -m 0755 -o 10001 -g 10001 /var/lib/homeagentp/reports
+   ```
+   - `deploy/systemd/homeagentp-nas-host-snapshot.service` runs with `User=10001`, `Group=10001`, `UMask=0022`, `StateDirectory=homeagentp/reports`, `StateDirectoryMode=0755`, and `ReadWritePaths=/var/lib/homeagentp/reports`.
+   - `write_atomic_json_snapshot()` writes `.nas_host_snapshot.json.<pid>.tmp`, enforces `os.fchmod(fd, 0o644)` (`-rw-r--r--`), flushes via `os.fsync()`, and atomically renames to `nas_host_snapshot.json`.
+
+3. **Verify Directory Ownership, File Mode, and Readability by Core UID `10001`:**
+   ```bash
+   # Verify directory is mode 755 and owned by 10001:10001
+   stat -c '%a %u:%g %n' /var/lib/homeagentp/reports
+   # Expected: 755 10001:10001 /var/lib/homeagentp/reports
+
+   # Run a one-shot test as UID:GID 10001:10001
+   sudo -u '#10001' -g '#10001' /opt/homeagentp/venv/bin/python -m homeagentp_core.modules.nas.host_producer \
+     --output /var/lib/homeagentp/reports/nas_host_snapshot.json \
+     --proc-root /proc \
+     --root-mount / \
+     --required-mounts /mnt/disk1,/mnt/disk2 \
+     --ttl-seconds 120
+
+   # Verify snapshot file has mode 644, link count 1 (st_nlink == 1), and is readable by UID 10001
+   stat -c '%a %h %u:%g %n' /var/lib/homeagentp/reports/nas_host_snapshot.json
+   # Expected: 644 1 10001:10001 /var/lib/homeagentp/reports/nas_host_snapshot.json
+
+   sudo -u '#10001' -g '#10001' test -r /var/lib/homeagentp/reports/nas_host_snapshot.json && echo "READABLE_BY_10001_OK"
+   ```
+
+### 7.3. Host & Container Snapshot JSON Schemas & Freshness (`P02-F03`)
 
 Both snapshot files are read via the TOCTOU-resistant `read_allowlisted_text_file()` (`O_NOFOLLOW`, `st_nlink == 1`) and validated for `schema_version`, `generated_at` (ISO-8601 UTC), and `ttl_seconds` (capped by `HOMEAGENTP_NAS_SNAPSHOT_MAX_AGE_SECONDS`). If `age_seconds > effective_ttl`, the snapshot is marked `status: "stale"` (`fresh: false`) and is **never** treated as live status.
 
@@ -228,9 +274,12 @@ Both snapshot files are read via the TOCTOU-resistant `read_allowlisted_text_fil
 }
 ```
 
-### 7.3. Automatic Collection Scheduler (`P02-F02`) & Alert Lifecycle (`P02-F04`)
+### 7.4. Automatic Collection Scheduler (`P02-F02`), Bounded Shutdown & Alert Lifecycle (`P02-F04`)
 
-- **Background Scheduler (`NasCollectionScheduler`):** Runs every `HOMEAGENTP_NAS_COLLECTION_INTERVAL_SECONDS` (`60s` default) inside the FastAPI `lifespan`, guarded by an `asyncio.Lock` to prevent overlapping runs and `asyncio.wait_for` (`10s` default timeout). Skips SQLite writes when telemetry is `unavailable` and throttles repeated writes within `HOMEAGENTP_NAS_MIN_PERSIST_INTERVAL_SECONDS` when `adapter_status` is unchanged.
+- **Background Scheduler (`NasCollectionScheduler`):** Runs every `HOMEAGENTP_NAS_COLLECTION_INTERVAL_SECONDS` (`60s` default) inside the FastAPI `lifespan`, guarded by an `asyncio.Lock` AND a worker-thread `threading.Lock` (`_worker_lock`) inside a single-worker `ThreadPoolExecutor(max_workers=1)` so a timed-out OS I/O call never spawns a second overlapping collection thread (`last_status = "skipped_worker_busy"`).
+- **Bounded Shutdown & Honest Worker State:** On `stop(wait_timeout=...)`, the scheduler sets `stopping = True`, rejects any new `run_once()` calls, cancels the sleep loop, and waits up to `wait_timeout` (`2.0s` default) for `_worker_lock` to be released.
+  - If the worker finishes within `wait_timeout`, `executor.shutdown(wait=True, cancel_futures=True)` completes and `last_status` transitions to `"stopped"` (`stopping = False`, `worker_thread_busy = False`).
+  - If the worker thread is still blocked on kernel/filesystem I/O after `wait_timeout`, the scheduler calls `executor.shutdown(wait=False, cancel_futures=True)` to avoid hanging FastAPI shutdown indefinitely, and reports `last_status = "stopping_worker_hung"`, `stopping = True`, `worker_thread_busy = True` (never falsely claiming `"stopped"` until the worker thread's `finally:` block actually releases `_worker_lock`).
 - **Stateful Alert Lifecycle (`nas_alerts`):** Deduplicates active alerts by `alert_key` (`{component}:{code}`), updating `last_seen_at` and incrementing `occurrences`. Automatically marks cleared alerts `status = 'resolved'` with `resolved_at`, and inserts a new `active` row if the fault re-occurs later.
 
 ---

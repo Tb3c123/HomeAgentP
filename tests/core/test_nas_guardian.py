@@ -633,7 +633,48 @@ def test_p02_f02_scheduler_non_overlapping_timeout_and_write_throttling(tmp_path
         assert out_after_recovery is not None
         assert timeout_sched.last_status == "online"
         assert max_concurrent_workers == 1
-        await timeout_sched.stop()
+        clean_stop = await timeout_sched.stop(wait_timeout=0.5)
+        assert clean_stop["running"] is False
+        assert clean_stop["stopping"] is False
+        assert clean_stop["worker_thread_busy"] is False
+        assert clean_stop["last_status"] == "stopped"
+
+        # Bounded shutdown test when worker thread is STILL hung on OS I/O:
+        # Must NOT claim "stopped" while the worker thread is still running!
+        def hung_on_shutdown_collector(_cfg: Settings) -> dict[str, Any]:
+            _time.sleep(1.35)
+            return fast_collector(_cfg)
+
+        hung_sched = NasCollectionScheduler(
+            timeout_settings,
+            collector_fn=hung_on_shutdown_collector,
+            shutdown_timeout_seconds=0.1,
+        )
+        out_hung = await hung_sched.run_once()
+        assert out_hung is None
+        assert hung_sched.last_status == "timeout"
+        assert hung_sched.worker_thread_busy is True
+
+        # Trigger bounded stop (0.05s wait) while worker thread is still blocked (~0.35s left)
+        stop_state = await hung_sched.stop(wait_timeout=0.05)
+        assert stop_state["running"] is False
+        assert stop_state["stopping"] is True
+        assert stop_state["worker_thread_busy"] is True
+        assert stop_state["in_progress"] is True
+        assert stop_state["last_status"] == "stopping_worker_hung"
+        assert "still active" in str(stop_state["last_error"])
+
+        # Attempting a new collection while stopping must be rejected immediately
+        rejected = await hung_sched.run_once()
+        assert rejected is None
+        assert hung_sched.last_status == "stopping_worker_hung"
+
+        # Once the hung worker finally finishes in the background, state transitions to "stopped"
+        await asyncio.sleep(0.45)
+        final_state = hung_sched.status_summary()
+        assert final_state["worker_thread_busy"] is False
+        assert final_state["stopping"] is False
+        assert final_state["last_status"] == "stopped"
 
         # Start and graceful stop test
         await sched.start()
@@ -641,13 +682,20 @@ def test_p02_f02_scheduler_non_overlapping_timeout_and_write_throttling(tmp_path
         await asyncio.sleep(0.05)
         await sched.stop()
         assert sched.running is False
+        assert sched.last_status == "stopped"
 
     asyncio.run(_run_scheduler_checks())
 
 
 def test_host_snapshot_producer_and_systemd_templates(tmp_path: Path) -> None:
-    """Verify host_producer builds schema-valid snapshots atomically and systemd units exist."""
+    """Verify non-root filesystem permissions, snapshot handoff, and systemd/Compose alignment."""
+    import stat as _stat
+
     from homeagentp_core.modules.nas import host_producer
+    from homeagentp_core.modules.scripts.safe_reader import read_allowlisted_text_file
+
+    # Mandatory guard: do not run as root (root bypasses POSIX directory permission checks)
+    assert os.geteuid() != 0, "Filesystem permission tests must run as a non-root user."
 
     proc_dir = tmp_path / "proc"
     (proc_dir / "pressure").mkdir(parents=True)
@@ -691,8 +739,8 @@ def test_host_snapshot_producer_and_systemd_templates(tmp_path: Path) -> None:
 
     reports_dir = tmp_path / "reports"
     scripts_dir = tmp_path / "scripts"
-    reports_dir.mkdir()
-    scripts_dir.mkdir()
+    reports_dir.mkdir(mode=0o755)
+    scripts_dir.mkdir(mode=0o755)
     out_file = reports_dir / "nas_host_snapshot.json"
 
     payload = host_producer.build_host_snapshot_payload(
@@ -704,9 +752,52 @@ def test_host_snapshot_producer_and_systemd_templates(tmp_path: Path) -> None:
         stat_fn=fake_stat,
         statvfs_fn=fake_statvfs,
     )
-    written = host_producer.write_atomic_json_snapshot(out_file, payload)
+
+    # Even under a restrictive process umask (0077), write_atomic_json_snapshot must produce
+    # mode 0644 (rw-r--r--) with st_nlink == 1 so Core UID 10001 can read it across :ro mount.
+    old_umask = os.umask(0o077)
+    try:
+        written = host_producer.write_atomic_json_snapshot(out_file, payload)
+    finally:
+        os.umask(old_umask)
+
     assert written == out_file.resolve()
     assert out_file.exists()
+    st_out = os.lstat(out_file)
+    assert _stat.S_ISREG(st_out.st_mode)
+    assert _stat.S_IMODE(st_out.st_mode) == 0o644
+    assert bool(st_out.st_mode & _stat.S_IRUSR)
+    assert bool(st_out.st_mode & _stat.S_IRGRP)
+    assert bool(st_out.st_mode & _stat.S_IROTH)
+    assert st_out.st_nlink == 1
+
+    # Verify Core safe_reader can read the exact snapshot file without symlink/hardlink rejection
+    safe_file = read_allowlisted_text_file(reports_dir, "nas_host_snapshot.json")
+    assert safe_file.size_bytes > 0
+    assert len(safe_file.sha256) == 64
+    assert json.loads(safe_file.content)["schema_version"] == HOST_SNAPSHOT_SCHEMA_VERSION
+
+    # Verify non-root permission failure when snapshot directory is read-only (0555)
+    ro_dir = tmp_path / "ro_reports"
+    ro_dir.mkdir(mode=0o555)
+    try:
+        try:
+            host_producer.write_atomic_json_snapshot(ro_dir / "nas_host_snapshot.json", payload)
+            raise AssertionError("Expected PermissionError on read-only snapshot directory")
+        except PermissionError:
+            pass
+        assert list(ro_dir.iterdir()) == []
+    finally:
+        ro_dir.chmod(0o755)
+
+    # Verify symlinked target or parent directory is rejected
+    sym_target = reports_dir / "symlink_snap.json"
+    sym_target.symlink_to(out_file)
+    try:
+        host_producer.write_atomic_json_snapshot(sym_target, payload)
+        raise AssertionError("Expected PermissionError on symlink target")
+    except PermissionError:
+        pass
 
     # Verify Core consumes the producer's output via host_snapshot mode
     settings = Settings(
@@ -746,16 +837,45 @@ def test_host_snapshot_producer_and_systemd_templates(tmp_path: Path) -> None:
     assert rc == 0
     assert cli_out.exists()
 
-    # Verify sample systemd service & timer templates exist and contain hardening directives
+    # Verify sample systemd service, timer, Docker Compose, and .env.example path synchronization
     repo_root = Path(__file__).resolve().parents[2]
     svc_file = repo_root / "deploy" / "systemd" / "homeagentp-nas-host-snapshot.service"
     tmr_file = repo_root / "deploy" / "systemd" / "homeagentp-nas-host-snapshot.timer"
+    compose_file = repo_root / "deploy" / "docker-compose.dev.yml"
+    env_example_file = repo_root / "config" / "examples" / ".env.example"
     assert svc_file.exists()
     assert tmr_file.exists()
     svc_text = svc_file.read_text(encoding="utf-8")
+    compose_text = compose_file.read_text(encoding="utf-8")
+    env_text = env_example_file.read_text(encoding="utf-8")
+
+    assert "User=10001" in svc_text
+    assert "Group=10001" in svc_text
+    assert "UMask=0022" in svc_text
+    assert "StateDirectory=homeagentp/reports" in svc_text
+    assert "ReadWritePaths=/var/lib/homeagentp/reports" in svc_text
+    assert "--output /var/lib/homeagentp/reports/nas_host_snapshot.json" in svc_text
     assert "NoNewPrivileges=yes" in svc_text
     assert "ProtectSystem=strict" in svc_text
     assert "homeagentp_core.modules.nas.host_producer" in svc_text
+
+    # Confirm Docker Compose mounts /var/lib/homeagentp/reports read-only to /config/reports
+    # and runs homeagentp-core as UID:GID 10001:10001 without Docker Socket or privileged mode
+    compose_active = "\n".join(
+        line for line in compose_text.splitlines() if not line.strip().startswith("#")
+    )
+    assert 'user: "10001:10001"' in compose_active
+    assert "${HOMEAGENTP_HOST_REPORTS_DIR:-/var/lib/homeagentp/reports}:/config/reports:ro" in (
+        compose_active
+    )
+    assert "HOMEAGENTP_REPORTS_DIR: /config/reports" in compose_active
+    assert (
+        "HOMEAGENTP_NAS_HOST_SNAPSHOT_REL_PATH: "
+        "${HOMEAGENTP_NAS_HOST_SNAPSHOT_REL_PATH:-nas_host_snapshot.json}"
+    ) in compose_active
+    assert "docker.sock" not in compose_active
+    assert "privileged: true" not in compose_active
+    assert "HOMEAGENTP_HOST_REPORTS_DIR=/var/lib/homeagentp/reports" in env_text
 
 
 def test_nas_guardian_api_collection_alerts_and_retention(tmp_path: Path) -> None:

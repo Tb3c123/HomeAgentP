@@ -122,9 +122,24 @@ def build_host_snapshot_payload(
 
 
 def write_atomic_json_snapshot(output_path: Path, payload: dict[str, Any]) -> Path:
-    """Write a JSON snapshot atomically via `.tmp` + `fsync` + `os.replace`."""
-    resolved_out = output_path.resolve()
-    resolved_out.parent.mkdir(parents=True, exist_ok=True)
+    """Write a JSON snapshot atomically via `.tmp` + `fchmod(0o644)` + `fsync` + `os.replace`.
+
+    Ensures the resulting file is a regular single-link file (`st_nlink == 1`) with mode `0644`
+    (`rw-r--r--`) so `homeagentp-core` running as non-root UID/GID `10001:10001` can read it
+    across a `:ro` bind mount.
+    """
+    if output_path.is_symlink() or output_path.parent.is_symlink():
+        raise PermissionError(f"Symlinked snapshot output path is prohibited: {output_path}")
+
+    resolved_parent = output_path.parent.resolve()
+    resolved_parent.mkdir(parents=True, exist_ok=True)
+    if not os.access(resolved_parent, os.W_OK | os.X_OK):
+        raise PermissionError(
+            f"Snapshot directory is not writable by current user (uid={os.geteuid()}): "
+            f"{resolved_parent}"
+        )
+
+    resolved_out = resolved_parent / output_path.name
     tmp_path = resolved_out.with_name(f".{resolved_out.name}.{os.getpid()}.tmp")
 
     serialized = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
@@ -135,6 +150,7 @@ def write_atomic_json_snapshot(output_path: Path, payload: dict[str, Any]) -> Pa
             0o644,
         )
         try:
+            os.fchmod(fd, 0o644)
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 handle.write(serialized)
                 handle.flush()
@@ -145,6 +161,11 @@ def write_atomic_json_snapshot(output_path: Path, payload: dict[str, Any]) -> Pa
             raise
 
         os.replace(tmp_path, resolved_out)
+        dir_fd = os.open(str(resolved_parent), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
     finally:
         if tmp_path.exists():
             tmp_path.unlink(missing_ok=True)

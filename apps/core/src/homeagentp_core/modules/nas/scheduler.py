@@ -47,13 +47,17 @@ class NasCollectionScheduler:
         settings: Settings,
         *,
         collector_fn: CollectorCallable | None = None,
+        shutdown_timeout_seconds: float = 2.0,
     ) -> None:
         self._settings = settings
         self._collector_fn: CollectorCallable = collector_fn or (
             lambda cfg: collect_nas_telemetry(cfg, sample_delay_seconds=0.01)
         )
+        self._shutdown_timeout_seconds = max(0.0, float(shutdown_timeout_seconds))
         self._lock = asyncio.Lock()
         self._worker_lock = threading.Lock()
+        self._worker_done_event = threading.Event()
+        self._worker_done_event.set()
         self._executor = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="nas-guardian-worker"
         )
@@ -61,6 +65,7 @@ class NasCollectionScheduler:
         self._task: asyncio.Task[None] | None = None
 
         self.running: bool = False
+        self.stopping: bool = False
         self.in_progress: bool = False
         self.worker_thread_busy: bool = False
         self.last_run_at: str | None = None
@@ -73,15 +78,18 @@ class NasCollectionScheduler:
 
     def status_summary(self) -> dict[str, Any]:
         """Return current scheduler state for `/api/v1/nas/status` and Dashboard inspection."""
+        worker_busy = self._worker_lock.locked()
         return {
             "enabled": bool(
                 self._settings.nas_scheduler_enabled and self._settings.nas_adapter_enabled
             ),
             "running": self.running,
-            "in_progress": self.in_progress or self._worker_lock.locked(),
-            "worker_thread_busy": self._worker_lock.locked(),
+            "stopping": self.stopping,
+            "in_progress": self.in_progress or worker_busy,
+            "worker_thread_busy": worker_busy,
             "interval_seconds": self._settings.nas_collection_interval_seconds,
             "timeout_seconds": self._settings.nas_collection_timeout_seconds,
+            "shutdown_timeout_seconds": self._shutdown_timeout_seconds,
             "min_persist_interval_seconds": self._settings.nas_min_persist_interval_seconds,
             "last_run_at": self.last_run_at,
             "last_success_at": self.last_success_at,
@@ -115,9 +123,23 @@ class NasCollectionScheduler:
         finally:
             self.worker_thread_busy = False
             self._worker_lock.release()
+            self._worker_done_event.set()
+            if self.stopping and not self.running:
+                self.stopping = False
+                self.last_status = "stopped"
+                self.last_error = None
 
     async def run_once(self, *, force_persist: bool = False) -> dict[str, Any] | None:
         """Execute a single non-overlapping collection cycle with worker-level overlap guard."""
+        if self.stopping or self._stop_event.is_set():
+            self.last_status = (
+                "stopping_worker_hung" if self._worker_lock.locked() else "stopped"
+            )
+            self.last_error = (
+                "Scheduler is shutting down or stopped; rejecting new collection cycle."
+            )
+            return None
+
         if self._lock.locked() or self._worker_lock.locked():
             self.skipped_overlap_count += 1
             if self._worker_lock.locked() and not self._lock.locked():
@@ -129,11 +151,18 @@ class NasCollectionScheduler:
             return None
 
         async with self._lock:
+            if self.stopping or self._stop_event.is_set():
+                self.last_status = (
+                    "stopping_worker_hung" if self._worker_lock.locked() else "stopped"
+                )
+                return None
+
             if not self._worker_lock.acquire(blocking=False):
                 self.skipped_overlap_count += 1
                 self.last_status = "skipped_worker_busy"
                 return None
 
+            self._worker_done_event.clear()
             self.worker_thread_busy = True
             self.in_progress = True
             self.last_run_at = datetime.now(UTC).isoformat()
@@ -184,24 +213,73 @@ class NasCollectionScheduler:
         """Start the background loop if enabled in Settings."""
         if not (self._settings.nas_scheduler_enabled and self._settings.nas_adapter_enabled):
             self.running = False
+            self.stopping = False
             self.last_status = "disabled"
+            return
+        if self._worker_lock.locked():
+            self.running = False
+            self.stopping = True
+            self.last_status = "stopping_worker_hung"
             return
         if self._task is not None and not self._task.done():
             return
+        if getattr(self._executor, "_shutdown", False):
+            self._executor = ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="nas-guardian-worker"
+            )
         self._stop_event.clear()
+        self.stopping = False
         self.running = True
         self.last_status = "starting"
         self._task = asyncio.create_task(self._loop(), name="nas-guardian-scheduler")
 
-    async def stop(self) -> None:
-        """Gracefully stop the background loop and shut down the worker executor."""
+    async def stop(self, *, wait_timeout: float | None = None) -> dict[str, Any]:
+        """Stop the background loop with a bounded wait for any active worker thread.
+
+        Never claims `last_status == "stopped"` if the underlying worker thread is still
+        blocked on OS I/O after `wait_timeout` expires; instead reports
+        `last_status = "stopping_worker_hung"`, `stopping = True`, and
+        `worker_thread_busy = True`.
+        """
+        self.stopping = True
         self._stop_event.set()
+        self.last_status = "stopping"
+
         if self._task is not None:
             self._task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._task
             self._task = None
-        self._executor.shutdown(wait=False, cancel_futures=True)
-        self.running = False
-        if self.last_status == "starting":
+
+        bound = (
+            self._shutdown_timeout_seconds
+            if wait_timeout is None
+            else max(0.0, float(wait_timeout))
+        )
+        if self._worker_lock.locked() and bound > 0.0:
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + bound
+            while self._worker_lock.locked():
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    break
+                await asyncio.sleep(min(0.02, remaining))
+
+        if self._worker_lock.locked():
+            self._executor.shutdown(wait=False, cancel_futures=True)
+            self.running = False
+            self.stopping = True
+            self.worker_thread_busy = True
+            self.last_status = "stopping_worker_hung"
+            self.last_error = (
+                f"Scheduler loop stopped, but underlying worker thread is still active "
+                f"after {bound:.2f}s bounded shutdown timeout."
+            )
+        else:
+            self._executor.shutdown(wait=True, cancel_futures=True)
+            self.running = False
+            self.stopping = False
+            self.worker_thread_busy = False
             self.last_status = "stopped"
+
+        return self.status_summary()

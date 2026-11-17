@@ -1,8 +1,16 @@
 # HomeAgentP B+ — Sample Least-Privilege Host Telemetry Snapshot Service
 # Reference template only (NOT deployed automatically).
-# Writes nas_host_snapshot.json atomically into /var/lib/homeagentp/reports so
-# homeagentp-core can read verified NAS host metrics via a read-only (:ro) bind mount
-# without privileged mode, host network, or /var/run/docker.sock.
+#
+# Snapshot Handoff & Filesystem Permissions Model:
+# - Runs as non-root UID/GID 10001:10001 (matching homeagentp-core container user "10001:10001").
+# - Host directory /var/lib/homeagentp/reports is owned by 10001:10001 (mode 0755):
+#     sudo groupadd -g 10001 -r homeagentp || true
+#     sudo useradd -u 10001 -g 10001 -r -s /usr/sbin/nologin -d /var/lib/homeagentp homeagentp || true
+#     sudo install -d -m 0755 -o 10001 -g 10001 /var/lib/homeagentp/reports
+# - Writes /var/lib/homeagentp/reports/nas_host_snapshot.json atomically (mode 0644, st_nlink == 1).
+# - Mounted read-only (:ro) into homeagentp-core at /config/reports/nas_host_snapshot.json via
+#   deploy/docker-compose.dev.yml (${HOMEAGENTP_HOST_REPORTS_DIR:-/var/lib/homeagentp/reports}:/config/reports:ro).
+# - Zero Docker Socket, zero privileged mode, zero host network inside Web/Core.
 
 [Unit]
 Description=HomeAgentP B+ Read-Only NAS Host Telemetry Snapshot Producer
@@ -10,8 +18,11 @@ After=local-fs.target
 
 [Service]
 Type=oneshot
-User=nobody
-Group=nogroup
+User=10001
+Group=10001
+UMask=0022
+StateDirectory=homeagentp/reports
+StateDirectoryMode=0755
 NoNewPrivileges=yes
 PrivateTmp=yes
 PrivateDevices=yes
