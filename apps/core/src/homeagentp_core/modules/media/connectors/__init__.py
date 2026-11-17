@@ -8,6 +8,8 @@ from homeagentp_core.modules.media.connectors.qbittorrent import (
     QBittorrentAdapter,
 )
 from homeagentp_core.modules.media.connectors.radarr import RadarrAdapter
+from homeagentp_core.modules.media.connectors.registry import build_media_adapters
+from homeagentp_core.modules.media.connectors.seerr import SeerrAdapter
 from homeagentp_core.modules.media.connectors.sonarr import SonarrAdapter
 
 __all__ = [
@@ -17,6 +19,7 @@ __all__ = [
     "ProwlarrAdapter",
     "QBittorrentAdapter",
     "RadarrAdapter",
+    "SeerrAdapter",
     "SonarrAdapter",
+    "build_media_adapters",
 ]
-
