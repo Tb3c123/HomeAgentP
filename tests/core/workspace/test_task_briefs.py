@@ -163,3 +163,64 @@ def test_task_brief_rejects_secrets_with_redacted_errors(tmp_path: Path) -> None
             detail = resp.json()["detail"]
             assert field_name in detail
             assert secret_val not in detail
+
+
+def test_task_brief_rendered_text_secret_and_item_bounds(tmp_path: Path) -> None:
+    settings = make_workspace_settings(tmp_path, db_name="brief_bounds.db")
+    app = create_app(settings)
+    with TestClient(app) as client:
+        csrf = login_client(client, TEST_ADMIN_USERNAME, TEST_ADMIN_PASSWORD)
+
+        # Secret embedded in task title must be caught when validating complete rendered_text
+        tainted_title = "Task with ghp_1234567890abcdefghij1234567890"
+        t_secret = client.post(
+            "/api/v1/tasks",
+            json={"title": tainted_title},
+            headers={"X-CSRF-Token": csrf},
+        ).json()["id"]
+        resp_rendered = client.post(
+            f"/api/v1/workspace/tasks/{t_secret}/briefs",
+            json={"purpose": "Clean purpose"},
+            headers={"X-CSRF-Token": csrf},
+        )
+        assert resp_rendered.status_code == 400
+        assert "rendered_text" in resp_rendered.json()["detail"]
+        assert "ghp_" not in resp_rendered.json()["detail"]
+
+        t_ok = client.post(
+            "/api/v1/tasks",
+            json={"title": "Bounds task"},
+            headers={"X-CSRF-Token": csrf},
+        ).json()["id"]
+
+        # Oversized single input_reference item (>255 chars) -> 422
+        assert (
+            client.post(
+                f"/api/v1/workspace/tasks/{t_ok}/briefs",
+                json={"purpose": "Check bounds", "input_references": ["x" * 256]},
+                headers={"X-CSRF-Token": csrf},
+            ).status_code
+            == 422
+        )
+
+        # Oversized serialized input_references (>4096 bytes even with <=20 items of <=255 chars)
+        big_refs = [f"{i:02d}_" + ("a" * 240) for i in range(18)]
+        assert (
+            client.post(
+                f"/api/v1/workspace/tasks/{t_ok}/briefs",
+                json={"purpose": "Check serialized refs", "input_references": big_refs},
+                headers={"X-CSRF-Token": csrf},
+            ).status_code
+            == 422
+        )
+
+        # Oversized serialized acceptance_checks (>8192 bytes even with <=30 items of <=500 chars)
+        big_checks = [f"{i:02d}_" + ("b" * 450) for i in range(20)]
+        assert (
+            client.post(
+                f"/api/v1/workspace/tasks/{t_ok}/briefs",
+                json={"purpose": "Check serialized checks", "acceptance_checks": big_checks},
+                headers={"X-CSRF-Token": csrf},
+            ).status_code
+            == 422
+        )

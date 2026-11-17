@@ -212,3 +212,57 @@ def test_workspace_artifact_security_traversal_symlink_size_and_urls(tmp_path: P
             headers={"X-CSRF-Token": csrf},
         )
         assert good_git.status_code == 201
+
+
+def test_workspace_artifact_tag_bounds_and_pagination(tmp_path: Path) -> None:
+    settings = make_workspace_settings(tmp_path, db_name="art_page.db")
+    app = create_app(settings)
+    with TestClient(app) as client:
+        csrf = login_client(client, TEST_ADMIN_USERNAME, TEST_ADMIN_PASSWORD)
+
+        # Oversized single tag (>48 chars) -> 422
+        assert (
+            client.post(
+                "/api/v1/workspace/artifacts",
+                json={
+                    "slug": "bad-tag-len",
+                    "title": "Bad Tag",
+                    "source_type": "note",
+                    "tags": ["t" * 49],
+                },
+                headers={"X-CSRF-Token": csrf},
+            ).status_code
+            == 422
+        )
+
+        # Register 5 artifacts with shared tag 'batch'
+        for idx in range(5):
+            resp = client.post(
+                "/api/v1/workspace/artifacts",
+                json={
+                    "slug": f"note-{idx}",
+                    "title": f"Note {idx}",
+                    "source_type": "note",
+                    "tags": ["batch"],
+                },
+                headers={"X-CSRF-Token": csrf},
+            )
+            assert resp.status_code == 201
+
+        # Bounded pagination: limit=2, offset=0 -> 2 items, offset=2 -> next 2 items
+        page1 = client.get("/api/v1/workspace/artifacts?tag=batch&limit=2&offset=0").json()
+        page2 = client.get("/api/v1/workspace/artifacts?tag=batch&limit=2&offset=2").json()
+        page3 = client.get("/api/v1/workspace/artifacts?tag=batch&limit=2&offset=4").json()
+        assert len(page1) == 2
+        assert len(page2) == 2
+        assert len(page3) == 1
+        assert [p["slug"] for p in page1 + page2 + page3] == [
+            "note-4",
+            "note-3",
+            "note-2",
+            "note-1",
+            "note-0",
+        ]
+
+        # limit > 200 rejected
+        assert client.get("/api/v1/workspace/artifacts?limit=201").status_code == 422

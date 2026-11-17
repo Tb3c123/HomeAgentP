@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Literal
+import json
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 HumanBriefStatus = Literal[
     "draft",
@@ -22,17 +23,39 @@ ArtifactSourceType = Literal[
     "note",
 ]
 
+InputReferenceItem = Annotated[str, Field(min_length=1, max_length=255)]
+AcceptanceCheckItem = Annotated[str, Field(min_length=1, max_length=500)]
+ArtifactTagItem = Annotated[str, Field(min_length=1, max_length=48)]
+
+MAX_INPUT_REFERENCES_JSON_BYTES = 4096
+MAX_ACCEPTANCE_CHECKS_JSON_BYTES = 8192
+MAX_TAGS_JSON_BYTES = 1024
+
 
 class TaskBriefCreate(BaseModel):
     purpose: str = Field(..., min_length=3, max_length=2000)
     scope: str = Field(default="", max_length=4000)
     excluded_scope: str = Field(default="", max_length=4000)
-    input_references: list[str] = Field(default_factory=list, max_length=20)
-    acceptance_checks: list[str] = Field(default_factory=list, max_length=30)
+    input_references: list[InputReferenceItem] = Field(default_factory=list, max_length=20)
+    acceptance_checks: list[AcceptanceCheckItem] = Field(default_factory=list, max_length=30)
     security_constraints: str = Field(default="", max_length=4000)
     rollback_plan: str = Field(default="", max_length=4000)
     human_status: HumanBriefStatus = "draft"
     expected_latest_version: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _check_serialized_bounds(self) -> TaskBriefCreate:
+        refs_bytes = len(json.dumps(self.input_references, ensure_ascii=False).encode("utf-8"))
+        if refs_bytes > MAX_INPUT_REFERENCES_JSON_BYTES:
+            raise ValueError(
+                f"Serialized input_references exceeds {MAX_INPUT_REFERENCES_JSON_BYTES} bytes."
+            )
+        checks_bytes = len(json.dumps(self.acceptance_checks, ensure_ascii=False).encode("utf-8"))
+        if checks_bytes > MAX_ACCEPTANCE_CHECKS_JSON_BYTES:
+            raise ValueError(
+                f"Serialized acceptance_checks exceeds {MAX_ACCEPTANCE_CHECKS_JSON_BYTES} bytes."
+            )
+        return self
 
 
 class TaskBriefOut(BaseModel):
@@ -75,10 +98,17 @@ class WorkspaceArtifactCreate(BaseModel):
     expected_sha256: str = Field(default="", max_length=64)
     git_url: str = Field(default="", max_length=255)
     summary: str = Field(default="", max_length=2000)
-    tags: list[str] = Field(default_factory=list, max_length=16)
+    tags: list[ArtifactTagItem] = Field(default_factory=list, max_length=16)
     project_id: int | None = None
     task_id: int | None = None
     expected_latest_revision: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _check_tags_serialized_size(self) -> WorkspaceArtifactCreate:
+        tags_bytes = len(json.dumps(self.tags, ensure_ascii=False).encode("utf-8"))
+        if tags_bytes > MAX_TAGS_JSON_BYTES:
+            raise ValueError(f"Serialized tags exceeds {MAX_TAGS_JSON_BYTES} bytes.")
+        return self
 
 
 class WorkspaceArtifactOut(BaseModel):

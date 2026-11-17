@@ -162,6 +162,7 @@ def create_task_brief(
         version=next_version,
         payload=payload,
     )
+    assert_no_secrets({"rendered_text": rendered_text})
 
     try:
         cursor = conn.execute(

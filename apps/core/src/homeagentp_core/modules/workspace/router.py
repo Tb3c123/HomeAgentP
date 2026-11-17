@@ -93,6 +93,8 @@ def list_workspace_artifacts_endpoint(
     tag: str | None = Query(default=None, max_length=64),
     q: str | None = Query(default=None, max_length=120),
     include_history: bool = Query(default=False),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10000),
     principal: AuthenticatedPrincipal = Depends(get_current_principal),
     settings: Settings = Depends(get_settings),
 ) -> list[WorkspaceArtifactOut]:
@@ -106,6 +108,8 @@ def list_workspace_artifacts_endpoint(
             tag=tag,
             q=q,
             include_history=include_history,
+            limit=limit,
+            offset=offset,
         )
 
 

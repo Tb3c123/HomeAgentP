@@ -214,9 +214,12 @@ def list_workspace_artifacts(
     tag: str | None = None,
     q: str | None = None,
     include_history: bool = False,
+    limit: int = 50,
+    offset: int = 0,
 ) -> list[WorkspaceArtifactOut]:
-    """List workspace artifacts/knowledge with optional filters (latest revision by default)."""
+    """List workspace artifacts/knowledge with SQLite-side filtering and bounded pagination."""
     like_term = f"%{q.strip().lower()}%" if (q is not None and q.strip()) else None
+    clean_tag = tag.strip().lower() if (tag is not None and tag.strip()) else None
     rows = conn.execute(
         """
         SELECT wa.*
@@ -233,11 +236,18 @@ def list_workspace_artifacts(
         AND (? IS NULL OR wa.task_id = ?)
         AND (
             ? IS NULL
+            OR EXISTS (
+                SELECT 1 FROM json_each(wa.tags_json) je WHERE LOWER(je.value) = ?
+            )
+        )
+        AND (
+            ? IS NULL
             OR LOWER(wa.title) LIKE ?
             OR LOWER(wa.summary) LIKE ?
             OR LOWER(wa.slug) LIKE ?
         )
         ORDER BY wa.created_at DESC, wa.id DESC
+        LIMIT ? OFFSET ?
         """,
         (
             1 if include_history else 0,
@@ -249,18 +259,17 @@ def list_workspace_artifacts(
             project_id,
             task_id,
             task_id,
+            clean_tag,
+            clean_tag,
             like_term,
             like_term,
             like_term,
             like_term,
+            limit,
+            offset,
         ),
     ).fetchall()
-    items = [_row_to_artifact(r) for r in rows]
-
-    if tag is not None and tag.strip():
-        target_tag = tag.strip().lower()
-        items = [item for item in items if any(t.lower() == target_tag for t in item.tags)]
-    return items
+    return [_row_to_artifact(r) for r in rows]
 
 
 def list_artifact_versions(conn: sqlite3.Connection, slug: str) -> list[WorkspaceArtifactOut]:
