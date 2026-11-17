@@ -145,38 +145,93 @@ print('Isolated restore verified:', restored)
 
 ---
 
-## 7. Phase 02 — NAS Guardian Configuration & Operational Notes
+## 7. Phase 02 — NAS Guardian Hardening (`P02-F01`–`P02-F05`) & Host Collector Guide
 
-### 7.1. Read-Only NAS Adapter Settings (`.env`)
+### 7.1. Host vs. Container Telemetry Boundary (`P02-F01`)
 
-By default, `HOMEAGENTP_NAS_ADAPTER_ENABLED=false` so development environments never fabricate live NAS metrics and instead return `unavailable`. To enable read-only telemetry collection in staging:
+Inside a Docker/CasaOS container, `/proc`, `/`, and `/proc/mounts` belong to the **container's own namespace** (`overlay` rootfs), **not** the Debian 12 NAS host.
+- If `homeagentp-core` blindly inspected `/proc/mounts` and `/` inside a container, `/mnt/disk1` and `/mnt/disk2` would be absent or appear on the container rootfs, triggering false-positive critical HDD unmount alerts.
+- `homeagentp-core` enforces a strict boundary (`verify_direct_host_boundary()`):
+  1. **`host_snapshot` Mode (Recommended for Debian 12 / CasaOS)**: A least-privilege host systemd timer writes an atomic JSON snapshot (`nas_host_snapshot.json`, schema `homeagentp.nas_host.v1`) into a host directory mounted read-only (`:ro`) into `homeagentp-core` (`HOMEAGENTP_REPORTS_DIR`). `homeagentp-core` never needs host filesystem mounts or elevated capabilities.
+  2. **`direct_host_fs` Mode**: Requires explicit read-only host mounts (`HOMEAGENTP_NAS_PROC_ROOT=/host/proc`, `HOMEAGENTP_NAS_ROOT_MOUNT_PATH=/host/root`). If configured with container-local `/proc`, `/`, or if the mounts table reports a container `overlay`/`aufs`/`shm` root filesystem, `homeagentp-core` rejects the boundary, returns `status: "unavailable"` (`host_verified: false`), and **never** emits false HDD unmount alerts.
 
 ```dotenv
 HOMEAGENTP_NAS_ADAPTER_ENABLED=true
-HOMEAGENTP_NAS_PROC_ROOT=/proc
-HOMEAGENTP_NAS_ROOT_MOUNT_PATH=/
-HOMEAGENTP_NAS_REQUIRED_MOUNTS=/mnt/disk1,/mnt/disk2
-HOMEAGENTP_NAS_EXPECTED_SERVICES=jellyfin,sonarr,radarr,bazarr,prowlarr,seerr,qbittorrent,adguard,portainer
-HOMEAGENTP_NAS_CONTAINER_SNAPSHOT_REL_PATH=
+HOMEAGENTP_NAS_TELEMETRY_MODE=host_snapshot
+HOMEAGENTP_NAS_HOST_SNAPSHOT_REL_PATH=nas_host_snapshot.json
+HOMEAGENTP_NAS_CONTAINER_SNAPSHOT_REL_PATH=containers_snapshot.json
+HOMEAGENTP_NAS_SNAPSHOT_MAX_AGE_SECONDS=180
+HOMEAGENTP_NAS_SCHEDULER_ENABLED=true
 HOMEAGENTP_NAS_COLLECTION_INTERVAL_SECONDS=60
-HOMEAGENTP_NAS_HISTORY_RETENTION_LIMIT=500
+HOMEAGENTP_NAS_COLLECTION_TIMEOUT_SECONDS=10.0
+HOMEAGENTP_NAS_MIN_PERSIST_INTERVAL_SECONDS=15
+HOMEAGENTP_NAS_HISTORY_RETENTION_LIMIT=120
 ```
 
-### 7.2. Mount Guardian & Unmounted Fallback Detection (`/mnt/disk1`, `/mnt/disk2`)
+### 7.2. Host & Container Snapshot JSON Schemas & Freshness (`P02-F03`)
 
-- **Problem:** When an external/internal data drive (`/mnt/disk1` or `/mnt/disk2`) is accidentally unmounted on Linux, the empty mount directory on `/` still exists. A naive `os.statvfs("/mnt/disk1")` call would report the root SSD's capacity and free space, hiding the lost mount and risking writes filling up `/`.
-- **Mitigation in `inspect_mount_point()`:**
-  1. Verifies the path is not a symlink (`lstat`).
-  2. Parses `/proc/mounts` to check if the canonical mount point is an active mount entry.
-  3. Compares `st_dev` of the mount directory against `st_dev` of `HOMEAGENTP_NAS_ROOT_MOUNT_PATH` (`/`).
-  4. If the directory exists on disk (`S_ISDIR`) but is absent from `/proc/mounts` or shares `st_dev` with `/`, Mount Guardian marks it `status: "unmounted_fallback"`, `is_root_fallback: true`, suppresses misleading disk capacity numbers (`null`), and emits a `critical` alert (`mount:<path>:unmounted_fallback`).
-- **Storage Safety:** Mount Guardian only calls `lstat` and `statvfs` on the top-level mount point path. It performs **zero writes** to HDDs and **never walks media subdirectories**.
+Both snapshot files are read via the TOCTOU-resistant `read_allowlisted_text_file()` (`O_NOFOLLOW`, `st_nlink == 1`) and validated for `schema_version`, `generated_at` (ISO-8601 UTC), and `ttl_seconds` (capped by `HOMEAGENTP_NAS_SNAPSHOT_MAX_AGE_SECONDS`). If `age_seconds > effective_ttl`, the snapshot is marked `status: "stale"` (`fresh: false`) and is **never** treated as live status.
 
-### 7.3. Container Health Without `/var/run/docker.sock`
+#### Host Snapshot Schema (`homeagentp.nas_host.v1`)
+```json
+{
+  "schema_version": "homeagentp.nas_host.v1",
+  "generated_at": "2026-11-17T06:30:00+00:00",
+  "ttl_seconds": 120,
+  "cpu": {
+    "status": "ok",
+    "usage_percent": 18.4,
+    "logical_cores": 4,
+    "load_1m": 0.42,
+    "load_5m": 0.35,
+    "load_15m": 0.28,
+    "pressure": { "status": "ok", "some": { "avg10": 0.5, "avg60": 0.2, "avg300": 0.1, "total_us": 4000 }, "full": null }
+  },
+  "memory": {
+    "status": "ok",
+    "total_bytes": 17179869184,
+    "available_bytes": 12884901888,
+    "used_bytes": 4294967296,
+    "usage_percent": 25.0,
+    "swap_total_bytes": 4294967296,
+    "swap_free_bytes": 4294967296,
+    "swap_used_bytes": 0,
+    "swap_usage_percent": 0.0,
+    "pressure": { "status": "ok", "some": null, "full": null }
+  },
+  "mounts": [
+    { "mount_point": "/", "status": "mounted", "device": "/dev/nvme0n1p2", "fstype": "ext4", "total_bytes": 268435456000, "used_bytes": 53687091200, "available_bytes": 214748364800, "usage_percent": 20.0 },
+    { "mount_point": "/mnt/disk1", "status": "mounted", "device": "/dev/sda1", "fstype": "ext4", "total_bytes": 8000000000000, "used_bytes": 4000000000000, "available_bytes": 4000000000000, "usage_percent": 50.0 },
+    { "mount_point": "/mnt/disk2", "status": "mounted", "device": "/dev/sdb1", "fstype": "ext4", "total_bytes": 8000000000000, "used_bytes": 3200000000000, "available_bytes": 4800000000000, "usage_percent": 40.0 }
+  ]
+}
+```
 
-- Mounting `/var/run/docker.sock` into `homeagentp-core` is **strictly prohibited** by `AGENTS.md` (equivalent to host root).
-- Instead, `homeagentp-core` reads an optional, allowlisted read-only JSON snapshot (`HOMEAGENTP_NAS_CONTAINER_SNAPSHOT_REL_PATH`) inside `HOMEAGENTP_REPORTS_DIR` via the hardened `read_allowlisted_text_file()` descriptor reader (`O_NOFOLLOW`, `st_nlink == 1`).
-- If `HOMEAGENTP_NAS_CONTAINER_SNAPSHOT_REL_PATH` is empty or unreadable, container health honestly reports `status: "unavailable"` without breaching container isolation.
+#### Container Health Snapshot Schema (`homeagentp.containers.v1`)
+- Mounting `/var/run/docker.sock` into `homeagentp-core` is **strictly prohibited**.
+- A separate one-shot host systemd service/timer (running outside `homeagentp-core`) writes `containers_snapshot.json` atomically (`tmp` + `mv`) into the directory mounted `:ro` at `/config/reports` inside `homeagentp-core`:
+```json
+{
+  "schema_version": "homeagentp.containers.v1",
+  "generated_at": "2026-11-17T06:30:00+00:00",
+  "ttl_seconds": 120,
+  "containers": [
+    {
+      "name": "jellyfin",
+      "state": "running",
+      "memory_used_bytes": 900000000,
+      "memory_limit_bytes": 2147483648,
+      "cpu_percent": 12.5,
+      "restart_count": 0
+    }
+  ]
+}
+```
+
+### 7.3. Automatic Collection Scheduler (`P02-F02`) & Alert Lifecycle (`P02-F04`)
+
+- **Background Scheduler (`NasCollectionScheduler`):** Runs every `HOMEAGENTP_NAS_COLLECTION_INTERVAL_SECONDS` (`60s` default) inside the FastAPI `lifespan`, guarded by an `asyncio.Lock` to prevent overlapping runs and `asyncio.wait_for` (`10s` default timeout). Skips SQLite writes when telemetry is `unavailable` and throttles repeated writes within `HOMEAGENTP_NAS_MIN_PERSIST_INTERVAL_SECONDS` when `adapter_status` is unchanged.
+- **Stateful Alert Lifecycle (`nas_alerts`):** Deduplicates active alerts by `alert_key` (`{component}:{code}`), updating `last_seen_at` and incrementing `occurrences`. Automatically marks cleared alerts `status = 'resolved'` with `resolved_at`, and inserts a new `active` row if the fault re-occurs later.
 
 ---
 

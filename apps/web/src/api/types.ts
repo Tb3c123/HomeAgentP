@@ -237,8 +237,10 @@ export interface NasContainerService {
 export interface NasAlertItem {
   id?: number;
   alert_key: string;
+  code?: string;
   severity: "warning" | "critical";
   category: string;
+  component?: string;
   target: string;
   message: string;
   metric_value?: number | null;
@@ -247,14 +249,41 @@ export interface NasAlertItem {
   first_seen_at?: string;
   last_seen_at?: string;
   resolved_at?: string | null;
+  occurrences?: number;
 }
 
 export interface NasStatusResponse {
   status: string;
+  adapter_status?: string;
   adapter_enabled: boolean;
   collected_at: string;
   collection_interval_seconds: number;
   history_retention_limit: number;
+  reason?: string | null;
+  telemetry_boundary?: {
+    mode: string;
+    source: string;
+    schema_version?: string;
+    generated_at?: string;
+    ttl_seconds?: number;
+    age_seconds?: number | null;
+    host_verified: boolean;
+    fresh: boolean;
+    reason?: string | null;
+  };
+  scheduler?: {
+    enabled: boolean;
+    running: boolean;
+    in_progress?: boolean;
+    interval_seconds?: number;
+    timeout_seconds?: number;
+    last_run_at?: string | null;
+    last_success_at?: string | null;
+    last_status: string;
+    last_error?: string | null;
+    run_count?: number;
+    skipped_overlap_count?: number;
+  };
   thresholds: {
     cpu_warn_percent: number;
     cpu_critical_percent: number;
@@ -273,10 +302,11 @@ export interface NasStatusResponse {
     load_5m: number | null;
     load_15m: number | null;
     pressure: {
+      status?: string;
       some: NasPsiWindow | null;
       full: NasPsiWindow | null;
     };
-    reason?: string;
+    reason?: string | null;
   };
   memory: {
     status: string;
@@ -289,16 +319,22 @@ export interface NasStatusResponse {
     swap_used_bytes: number | null;
     swap_usage_percent: number | null;
     pressure: {
+      status?: string;
       some: NasPsiWindow | null;
       full: NasPsiWindow | null;
     };
-    reason?: string;
+    reason?: string | null;
   };
   mounts: Record<string, NasMountStatus>;
   containers: {
     status: string;
     docker_socket_mounted: boolean;
     source: string;
+    schema_version?: string | null;
+    generated_at?: string | null;
+    ttl_seconds?: number;
+    age_seconds?: number | null;
+    fresh?: boolean;
     collected_at?: string;
     services: Record<string, NasContainerService>;
     reason: string;

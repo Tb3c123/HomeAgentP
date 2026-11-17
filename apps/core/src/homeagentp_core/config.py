@@ -65,8 +65,12 @@ class Settings(BaseSettings):
 
     # Phase 02 — NAS Guardian read-only telemetry configuration
     nas_adapter_enabled: bool = False
-    nas_proc_root: Path = Path("/proc")
-    nas_root_mount_path: Path = Path("/")
+    nas_telemetry_mode: Literal["disabled", "host_snapshot", "direct_host_fs"] = "disabled"
+    nas_host_snapshot_rel_path: str = "nas_host_snapshot.json"
+    nas_snapshot_max_age_seconds: int = Field(default=180, ge=15, le=86400)
+    nas_proc_root: Path = Path("/host/proc")
+    nas_root_mount_path: Path = Path("/host/root")
+    nas_mount_check_prefix: str = "/host/mounts"
     nas_required_mounts: list[str] = Field(
         default_factory=lambda: ["/mnt/disk1", "/mnt/disk2"]
     )
@@ -74,7 +78,10 @@ class Settings(BaseSettings):
         default_factory=lambda: list(DEFAULT_EXPECTED_SERVICES)
     )
     nas_container_snapshot_rel_path: str = ""
+    nas_scheduler_enabled: bool = False
     nas_collection_interval_seconds: int = Field(default=60, ge=10, le=3600)
+    nas_collection_timeout_seconds: float = Field(default=10.0, ge=1.0, le=60.0)
+    nas_min_persist_interval_seconds: int = Field(default=15, ge=0, le=3600)
     nas_history_retention_limit: int = Field(default=120, ge=5, le=2000)
 
     # Alert thresholds (percentage 1..100)
@@ -166,13 +173,22 @@ class Settings(BaseSettings):
             "antigravity_cli_wrapper": "prohibited",
             "nas_guardian": {
                 "adapter_enabled": self.nas_adapter_enabled,
+                "telemetry_mode": self.nas_telemetry_mode,
+                "host_snapshot_rel_path": (
+                    self.nas_host_snapshot_rel_path or "not_configured"
+                ),
+                "snapshot_max_age_seconds": self.nas_snapshot_max_age_seconds,
                 "proc_root": str(self.nas_proc_root),
+                "root_mount_path": str(self.nas_root_mount_path),
                 "required_mounts": self.nas_required_mounts,
                 "expected_services": self.nas_expected_services,
                 "container_snapshot_rel_path": (
                     self.nas_container_snapshot_rel_path or "not_configured"
                 ),
+                "scheduler_enabled": self.nas_scheduler_enabled,
                 "collection_interval_seconds": self.nas_collection_interval_seconds,
+                "collection_timeout_seconds": self.nas_collection_timeout_seconds,
+                "min_persist_interval_seconds": self.nas_min_persist_interval_seconds,
                 "history_retention_limit": self.nas_history_retention_limit,
                 "thresholds": {
                     "cpu_warn_percent": self.nas_cpu_warn_percent,

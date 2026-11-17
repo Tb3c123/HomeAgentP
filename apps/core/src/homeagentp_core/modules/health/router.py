@@ -70,10 +70,11 @@ def get_overview(
         nas_alerts_count = int(conn.execute("SELECT COUNT(*) FROM nas_alerts").fetchone()[0])
 
     nas_snap = collect_nas_telemetry(settings, sample_delay_seconds=0.0)
+    mounts_iter = nas_snap.get("mounts_list") or list(nas_snap.get("mounts", {}).values())
     mounts_map = {
-        str(m["mount_point"]): str(m["status"])
-        for m in nas_snap["mounts"]
-        if str(m["mount_point"]) in set(settings.nas_required_mounts)
+        str(m.get("mount_point") or m.get("path")): str(m["status"])
+        for m in mounts_iter
+        if str(m.get("mount_point") or m.get("path")) in set(settings.nas_required_mounts)
     }
     for req_mp in settings.nas_required_mounts:
         mounts_map.setdefault(req_mp, "unavailable")

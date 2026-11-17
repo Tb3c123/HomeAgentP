@@ -19,18 +19,34 @@ from homeagentp_core.db.connection import db_session
 from homeagentp_core.modules.nas.collector import (
     collect_nas_telemetry,
     persist_nas_snapshot,
+    query_nas_alerts,
 )
+from homeagentp_core.modules.nas.scheduler import NasCollectionScheduler
 
 router = APIRouter(prefix="/api/v1/nas", tags=["nas-guardian"])
 
 
+def _scheduler_summary(request: Request) -> dict[str, Any]:
+    sched: NasCollectionScheduler | None = getattr(request.app.state, "nas_scheduler", None)
+    if sched is None:
+        return {"enabled": False, "running": False, "last_status": "unavailable"}
+    return sched.status_summary()
+
+
 @router.get("/status")
 def get_nas_status(
+    request: Request,
     principal: AuthenticatedPrincipal = Depends(get_current_principal),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
-    """Return current read-only NAS Guardian snapshot (or honest unavailable state)."""
-    return collect_nas_telemetry(settings)
+    """Return current read-only NAS Guardian snapshot, scheduler state, and active alerts."""
+    snap = collect_nas_telemetry(settings)
+    snap["scheduler"] = _scheduler_summary(request)
+    with db_session(settings.db_path) as conn:
+        db_active = query_nas_alerts(conn, include_resolved=False, limit=100)
+        if db_active:
+            snap["alerts"] = db_active
+    return snap
 
 
 @router.post("/collect")
@@ -48,6 +64,8 @@ def trigger_nas_collection(
             conn,
             snapshot,
             retention_limit=settings.nas_history_retention_limit,
+            min_persist_interval_seconds=0,
+            db_key=str(settings.db_path),
         )
         record_audit_log(
             conn,
@@ -62,6 +80,7 @@ def trigger_nas_collection(
             ip_address=client_ip,
         )
 
+    snapshot["scheduler"] = _scheduler_summary(request)
     return {"snapshot_id": snapshot_id, **snapshot}
 
 
@@ -105,25 +124,11 @@ def list_nas_history(
 
 @router.get("/alerts")
 def list_nas_alerts(
+    include_resolved: bool = Query(default=False),
     limit: int = Query(default=50, ge=1, le=200),
     principal: AuthenticatedPrincipal = Depends(get_current_principal),
     settings: Settings = Depends(get_settings),
 ) -> list[dict[str, Any]]:
-    """Return persisted NAS Guardian alerts ordered from newest to oldest."""
+    """Return persisted NAS Guardian alerts with active/resolved filtering (`include_resolved`)."""
     with db_session(settings.db_path) as conn:
-        rows = conn.execute(
-            "SELECT * FROM nas_alerts ORDER BY id DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
-        return [
-            {
-                "id": int(r["id"]),
-                "code": str(r["code"]),
-                "severity": str(r["severity"]),
-                "component": str(r["component"]),
-                "message": str(r["message"]),
-                "details": json.loads(str(r["details_json"])),
-                "created_at": str(r["created_at"]),
-            }
-            for r in rows
-        ]
+        return query_nas_alerts(conn, include_resolved=include_resolved, limit=limit)

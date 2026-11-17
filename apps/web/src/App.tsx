@@ -59,6 +59,7 @@ export const App: React.FC = () => {
   const [nasStatus, setNasStatus] = useState<NasStatusResponse | null>(null);
   const [nasHistory, setNasHistory] = useState<NasHistoryItem[]>([]);
   const [nasAlerts, setNasAlerts] = useState<NasAlertItem[]>([]);
+  const [includeResolvedAlerts, setIncludeResolvedAlerts] = useState<boolean>(false);
   const [nasCollectBusy, setNasCollectBusy] = useState<boolean>(false);
   const [projects, setProjects] = useState<ProjectItem[]>([]);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
@@ -85,7 +86,7 @@ export const App: React.FC = () => {
           apiClient.getOverview(),
           apiClient.getNasStatus(),
           apiClient.listNasHistory(15),
-          apiClient.listNasAlerts(true),
+          apiClient.listNasAlerts(includeResolvedAlerts),
           apiClient.listProjects(),
           apiClient.listTasks(),
           apiClient.listScripts(),
@@ -110,7 +111,7 @@ export const App: React.FC = () => {
         setErrorMsg(err.message);
       }
     }
-  }, []);
+  }, [includeResolvedAlerts]);
 
   useEffect(() => {
     let mounted = true;
@@ -172,7 +173,7 @@ export const App: React.FC = () => {
       setNasStatus(latest);
       const [hist, al, ov] = await Promise.all([
         apiClient.listNasHistory(15),
-        apiClient.listNasAlerts(true),
+        apiClient.listNasAlerts(includeResolvedAlerts),
         apiClient.getOverview(),
       ]);
       setNasHistory(hist);
@@ -182,6 +183,16 @@ export const App: React.FC = () => {
       setErrorMsg(err instanceof Error ? err.message : "Failed to collect NAS snapshot.");
     } finally {
       setNasCollectBusy(false);
+    }
+  };
+
+  const handleToggleIncludeResolved = async (checked: boolean) => {
+    setIncludeResolvedAlerts(checked);
+    try {
+      const al = await apiClient.listNasAlerts(checked);
+      setNasAlerts(al);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Failed to load alerts.");
     }
   };
 
@@ -623,19 +634,26 @@ export const App: React.FC = () => {
 
                   <div className="card">
                     <div className="card-header">
-                      <h3 className="card-title">Adapter &amp; Storage Safety Policy</h3>
+                      <h3 className="card-title">Host Boundary, Scheduler &amp; Safety</h3>
                       <StatusBadge value={nasStatus.status} />
                     </div>
                     <ul className="kv-list">
                       <li>
-                        <span>Adapter Enabled</span>
-                        <StatusBadge value={nasStatus.adapter_enabled ? "ok" : "unavailable"} />
+                        <span>Host Telemetry Boundary</span>
+                        <StatusBadge
+                          value={
+                            nasStatus.telemetry_boundary?.host_verified
+                              ? nasStatus.telemetry_boundary.mode
+                              : "unavailable"
+                          }
+                        />
                       </li>
                       <li>
-                        <span>Collection Interval / Retention</span>
+                        <span>Auto-Collection Scheduler</span>
                         <code>
-                          {nasStatus.collection_interval_seconds}s /{" "}
-                          {nasStatus.history_retention_limit} snapshots
+                          {nasStatus.scheduler
+                            ? `${nasStatus.scheduler.running ? "running" : nasStatus.scheduler.last_status} (${nasStatus.collection_interval_seconds}s)`
+                            : `${nasStatus.collection_interval_seconds}s`}
                         </code>
                       </li>
                       <li>
@@ -703,7 +721,13 @@ export const App: React.FC = () => {
                       <StatusBadge value={nasStatus.containers.status} />
                     </div>
                     <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                      {nasStatus.containers.reason || `Source: ${nasStatus.containers.source}`}
+                      {nasStatus.containers.reason ||
+                        `Source: ${nasStatus.containers.source}${
+                          nasStatus.containers.age_seconds !== undefined &&
+                          nasStatus.containers.age_seconds !== null
+                            ? ` · Age: ${nasStatus.containers.age_seconds.toFixed(0)}s / TTL ${nasStatus.containers.ttl_seconds ?? 180}s`
+                            : ""
+                        }`}
                     </p>
                     <ul className="kv-list">
                       {Object.values(nasStatus.containers.services).map((svc) => (
@@ -725,29 +749,58 @@ export const App: React.FC = () => {
                   <div className="card">
                     <div className="card-header">
                       <h3 className="card-title">NAS Alerts ({nasAlerts.length})</h3>
-                      <StatusBadge
-                        value={
-                          nasStatus.alerts.some((a) => a.severity === "critical")
-                            ? "critical"
-                            : nasStatus.alerts.length > 0
-                              ? "warning"
-                              : "ok"
-                        }
-                      />
+                      <div style={{ display: "flex", gap: "0.65rem", alignItems: "center" }}>
+                        <label
+                          style={{
+                            fontSize: "0.78rem",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "0.3rem",
+                            margin: 0,
+                            cursor: "pointer",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={includeResolvedAlerts}
+                            onChange={(e) => void handleToggleIncludeResolved(e.target.checked)}
+                          />
+                          Show resolved
+                        </label>
+                        <StatusBadge
+                          value={
+                            nasStatus.alerts.some((a) => a.severity === "critical")
+                              ? "critical"
+                              : nasStatus.alerts.length > 0
+                                ? "warning"
+                                : "ok"
+                          }
+                        />
+                      </div>
                     </div>
                     {nasAlerts.length === 0 ? (
                       <p style={{ fontSize: "0.84rem", color: "var(--text-muted)" }}>
-                        No NAS alerts recorded yet.
+                        No active NAS alerts.
                       </p>
                     ) : (
                       <ul className="kv-list">
                         {nasAlerts.slice(0, 10).map((alert) => (
-                          <li key={alert.alert_key}>
+                          <li key={`${alert.id ?? alert.alert_key}-${alert.status}`}>
                             <div>
-                              <strong>{alert.target}</strong> ({alert.category})
+                              <strong>{alert.target}</strong> ({alert.code ?? alert.category})
                               <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
                                 {alert.message}
                               </div>
+                              {alert.first_seen_at && (
+                                <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                                  First: <code>{alert.first_seen_at}</code> · Last:{" "}
+                                  <code>{alert.last_seen_at}</code>
+                                  {alert.occurrences ? ` · Count: ${alert.occurrences}` : ""}
+                                  {alert.resolved_at
+                                    ? ` · Resolved: ${alert.resolved_at}`
+                                    : ""}
+                                </div>
+                              )}
                             </div>
                             <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
                               <StatusBadge value={alert.severity} />

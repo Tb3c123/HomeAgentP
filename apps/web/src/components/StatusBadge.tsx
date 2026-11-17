@@ -24,7 +24,9 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ value }) => {
     normalized === "not_tested" ||
     normalized === "draft" ||
     normalized === "warning" ||
-    normalized === "degraded"
+    normalized === "degraded" ||
+    normalized === "stale" ||
+    normalized === "active"
   ) {
     tone = "badge-warning";
   } else if (

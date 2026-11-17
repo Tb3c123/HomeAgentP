@@ -232,14 +232,29 @@ describe("HomeAgentP Web Dashboard", () => {
       },
       alerts: [
         {
-          alert_key: "mount:/mnt/disk2:unmounted_fallback",
+          alert_key: "mount:/mnt/disk2:mount.unmounted_fallback",
+          code: "mount.unmounted_fallback",
           severity: "critical",
           category: "mount_guardian",
           target: "/mnt/disk2",
           message: "Mount /mnt/disk2 is UNMOUNTED (directory fell back to root filesystem /).",
-          status: "open",
+          status: "active",
+          first_seen_at: "2026-11-16T20:00:00Z",
+          last_seen_at: "2026-11-16T20:05:00Z",
+          occurrences: 3,
         },
       ],
+      telemetry_boundary: {
+        mode: "host_snapshot",
+        source: "nas_host_snapshot.json",
+        host_verified: true,
+        fresh: true,
+      },
+      scheduler: {
+        enabled: true,
+        running: true,
+        last_status: "critical",
+      },
       storage_safety: {
         hdd_write_operations: 0,
         media_tree_crawled: false,
@@ -266,17 +281,41 @@ describe("HomeAgentP Web Dashboard", () => {
       },
     ]);
 
-    mockedClient.listNasAlerts.mockResolvedValue([
-      {
+    mockedClient.listNasAlerts.mockImplementation(async (includeResolved?: boolean) => {
+      const activeItem = {
         id: 1,
-        alert_key: "mount:/mnt/disk2:unmounted_fallback",
-        severity: "critical",
+        alert_key: "mount:/mnt/disk2:mount.unmounted_fallback",
+        code: "mount.unmounted_fallback",
+        severity: "critical" as const,
         category: "mount_guardian",
         target: "/mnt/disk2",
         message: "Mount /mnt/disk2 is UNMOUNTED (directory fell back to root filesystem /).",
-        status: "open",
-      },
-    ]);
+        status: "active",
+        first_seen_at: "2026-11-16T20:00:00Z",
+        last_seen_at: "2026-11-16T20:05:00Z",
+        occurrences: 3,
+      };
+      if (includeResolved) {
+        return [
+          activeItem,
+          {
+            id: 2,
+            alert_key: "cpu:cpu.usage_warning",
+            code: "cpu.usage_warning",
+            severity: "warning" as const,
+            category: "cpu",
+            target: "cpu",
+            message: "CPU usage was elevated.",
+            status: "resolved",
+            first_seen_at: "2026-11-16T19:00:00Z",
+            last_seen_at: "2026-11-16T19:05:00Z",
+            resolved_at: "2026-11-16T19:06:00Z",
+            occurrences: 2,
+          },
+        ];
+      }
+      return [activeItem];
+    });
 
     mockedClient.listProjects.mockResolvedValue([
       {
@@ -382,18 +421,28 @@ describe("HomeAgentP Web Dashboard", () => {
     expect(screen.getByText("Mount /mnt/disk1")).toBeInTheDocument();
     expect(screen.getByText("Mount /mnt/disk2")).toBeInTheDocument();
     expect(screen.getAllByText("UNAVAILABLE").length).toBeGreaterThan(5);
+    expect(mockedClient.listNasAlerts).toHaveBeenCalledWith(false);
 
     // Navigate to NAS Guardian
     fireEvent.click(screen.getByRole("button", { name: /^NAS Guardian$/i }));
     expect(
       screen.getByText(/NAS Guardian \(CPU, RAM, Mount Guardian & Container Health\)/i),
     ).toBeInTheDocument();
+    expect(screen.getByText("HOST_SNAPSHOT")).toBeInTheDocument();
     expect(screen.getByText("UNMOUNTED_FALLBACK")).toBeInTheDocument();
     expect(
       screen.getByText(
         /Mount \/mnt\/disk2 is UNMOUNTED \(directory fell back to root filesystem \/\)\./i,
       ),
     ).toBeInTheDocument();
+
+    // Toggle "Show resolved" checkbox -> calls listNasAlerts(true) and displays resolved alert
+    fireEvent.click(screen.getByLabelText(/Show resolved/i));
+    await waitFor(() => {
+      expect(mockedClient.listNasAlerts).toHaveBeenCalledWith(true);
+      expect(screen.getByText("CPU usage was elevated.")).toBeInTheDocument();
+      expect(screen.getByText("RESOLVED")).toBeInTheDocument();
+    });
 
     // Navigate to Tasks
     fireEvent.click(screen.getByRole("button", { name: /Tasks & AI Handoff/i }));
