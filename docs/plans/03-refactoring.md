@@ -1,8 +1,8 @@
 # Phase 03 — Modular Refactoring Plan & Architecture Map
 
 **Branch:** `feature/phase-03-media-downloads`  
-**PR:** [#3 — Phase 03 Media & Downloads](https://github.com/Tb3c123/HomeAgentP/pull/3) (currently targeting `feature/phase-02-nas-guardian`, `OPEN`)  
-**Baseline Commit (before R01):** `9e42db940b0df94d3cbb81a66cd473eb8d990682`
+**PR:** [#3 — Phase 03 Media & Downloads](https://github.com/Tb3c123/HomeAgentP/pull/3) (targeting `main`, `OPEN`)  
+**Baseline Commit (before R01):** `9e42db940b0df94d3cbb81a66cd473eb8d990682` (synced with `origin/main` at `a2e7ef6`)
 
 ---
 
@@ -134,5 +134,32 @@
 | **R06.5 (Page Sections)** | `COMPLETED` | `3f478d0` | Extracted `OverviewSection`, `HomeAutomationSection`, `NasGuardianSection`, `TasksSection`, `ScriptsSection`, `ReportsSection`, and `SettingsSection` into `src/components/sections/`; `App.tsx` reduced `1,875 -> 286` lines. |
 | **R06.6 (Media UI Tests)** | `COMPLETED` | `391c123` | Added `src/__tests__/MediaDashboard.test.tsx` covering card rendering, poll snapshot button, busy state, fallback cards, and "Show resolved" toggle (`4` Vitest tests PASS). |
 | **R07 (Test Decomposition)** | `COMPLETED` | `d20074f` | Split `tests/core/test_media_downloads.py` (`1,352` lines) into `tests/core/media/` (`conftest.py` + 8 focused test modules); `47` pytest, `ruff`, `mypy` PASS. |
+| **R08.1 (Frontend Test Split)** | `COMPLETED` | `bdc0415` | Split `App.test.tsx` (`902` lines) and refactored `MediaDashboard.test.tsx` into 4 feature-scoped test files (`AuthAndNavigation`, `NasGuardianSection`, `TasksAndAdminSections`, `MediaDashboard`) + 5 domain fixture helpers in `src/__tests__/fixtures/`. `9` Vitest tests, `tsc`, `vite build` PASS. |
+| **R08.3 (NAS Section Split)** | `COMPLETED` | `01f178e` | Extracted `NasMetricsCards` (136), `NasMountsCard` (46), and `NasContainersAlertsHistory` (144) into `src/components/nas/`; `NasGuardianSection.tsx` reduced `347 -> 69` lines. |
+| **R08.2 (Backend Test Split)** | `COMPLETED` | `5d77592`, `298e222` | Extracted media mock transports into `tests/core/media/mocks/` (`conftest.py` `445 -> 69` lines) and split `test_nas_guardian.py` (`1,011` lines) into `tests/core/nas/` (`conftest.py` + 6 focused test modules). `47` pytest, `ruff`, `mypy` PASS. |
+| **R08.4 (Architecture Audit)** | `COMPLETED` | — | Verified zero circular imports across `homeagentp_core`, pinned `httpx>=0.27.0,<0.29.0` with fail-closed `SafeDnsPinningBackend`, clean secret scan, and preserved API/SQLite/NAS Guardian contracts. |
+| **R08.5 (Docs & PR Sync)** | `COMPLETED` | — | Updated `docs/plans/03-refactoring.md` and PR #3 description with final R01–R08 inventory, verification counts, and rollback notes. |
+
+---
+
+## 7. Final R01–R08 Before/After File-Size Inventory & Verification
+
+| Area | Before (Baseline) | After (R01–R08) |
+|---|---|---|
+| Media Adapters | `modules/media/adapters.py` (`1,393` lines) | `adapters.py` (`51`-line re-export) + `connectors/{jellyfin,qbittorrent,arr_common,sonarr,radarr,bazarr,prowlarr,seerr,registry}.py` (`33–374` lines each) |
+| Media HTTP & Security | `modules/media/base.py` (`474` lines) | `base.py` (`58`-line re-export) + `errors.py` (62), `security.py` (175), `http_client.py` (273), `adapter_base.py` (168) |
+| Media Collector & Scheduler | `modules/media/collector.py` (`855` lines), `scheduler.py` (`180`) | `collector.py` (306), `state.py` (317), `alerts.py` (154), `persistence.py` (140), shared `homeagentp_core/scheduler.py` (276) |
+| Frontend App & Sections | `apps/web/src/App.tsx` (`1,874` lines), `api/types.ts` (`655`), `NasGuardianSection.tsx` (`347`) | `App.tsx` (`286` lines), `api/types/*` (`22–287`), `hooks/*`, `components/media/*`, `components/nas/*`, `components/sections/*` (`NasGuardianSection.tsx` `69` lines) |
+| Backend Tests | `test_media_downloads.py` (`936` -> `1,352` lines), `test_nas_guardian.py` (`1,011` lines) | `tests/core/media/` (`conftest.py` 69 + `mocks/*` + 8 test files), `tests/core/nas/` (`conftest.py` + 6 test files) |
+| Frontend Tests | `App.test.tsx` (`902` lines), `MediaDashboard.test.tsx` (`472` lines) | 4 focused test files (`AuthAndNavigation`, `NasGuardianSection`, `TasksAndAdminSections`, `MediaDashboard`) + `src/__tests__/fixtures/*` |
+
+### Final Verification Summary
+- **Backend (`apps/core`)**: `.venv/bin/ruff check src ../../tests/core` (**PASS**), `.venv/bin/mypy src` (**PASS**, 52 source files), `.venv/bin/pytest -v` (**PASS**, `47 passed`).
+- **Frontend (`apps/web`)**: `npm run typecheck` (**PASS**), `npm test` (**PASS**, 4 files / `9 passed`), `npm run build` (**PASS**).
+- **Docker Compose / Live NAS**: **`NOT_TESTED`** (no Docker daemon or production NAS in sandbox).
+
+### Rollback
+- PR #3 remains open against `main` (`a2e7ef6`). No NAS or production state was modified.
+- To roll back any R08 cleanup commit without touching R01–R07, run `git revert <commit_sha>` on `feature/phase-03-media-downloads`. To discard the entire feature branch, close PR #3 and keep `main` at `a2e7ef6`.
 
 
