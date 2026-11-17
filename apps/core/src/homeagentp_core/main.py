@@ -22,6 +22,7 @@ from homeagentp_core.modules.nas.scheduler import NasCollectionScheduler
 from homeagentp_core.modules.reports.router import router as reports_router
 from homeagentp_core.modules.scripts.router import router as scripts_router
 from homeagentp_core.modules.tasks.router import router as tasks_router
+from homeagentp_core.modules.workspace.router import router as workspace_router
 from homeagentp_core.seed import seed_example_data
 
 
@@ -87,6 +88,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(nas_router)
     app.include_router(media_router)
     app.include_router(tasks_router)
+    app.include_router(workspace_router)
     app.include_router(scripts_router)
     app.include_router(reports_router)
 

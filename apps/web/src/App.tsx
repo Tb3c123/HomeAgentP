@@ -8,6 +8,7 @@ import {
 import { NasGuardianSection } from "./components/sections/NasGuardianSection";
 import { HomeAutomationSection, OverviewSection } from "./components/sections/OverviewSection";
 import { TasksSection } from "./components/sections/TasksSection";
+import { WorkspaceSection } from "./components/workspace/WorkspaceSection";
 import { useAuthSession } from "./hooks/useAuthSession";
 import { useDashboardData } from "./hooks/useDashboardData";
 
@@ -17,6 +18,7 @@ export type NavSection =
   | "media_downloads"
   | "home_automation"
   | "tasks"
+  | "workspace"
   | "scripts"
   | "reports"
   | "settings";
@@ -176,6 +178,13 @@ export const App: React.FC = () => {
           </button>
           <button
             type="button"
+            className={`nav-btn ${activeSection === "workspace" ? "active" : ""}`}
+            onClick={() => setActiveSection("workspace")}
+          >
+            Workspace &amp; Artifacts
+          </button>
+          <button
+            type="button"
             className={`nav-btn ${activeSection === "scripts" ? "active" : ""}`}
             onClick={() => setActiveSection("scripts")}
           >
@@ -258,6 +267,10 @@ export const App: React.FC = () => {
             onCreateTask={createTask}
             onTaskStatusChange={handleTaskStatusChange}
           />
+        )}
+
+        {activeSection === "workspace" && (
+          <WorkspaceSection user={user} tasks={tasks} />
         )}
 
         {activeSection === "scripts" && (

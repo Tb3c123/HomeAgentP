@@ -30,7 +30,7 @@ export class ApiError extends Error {
   }
 }
 
-async function requestJson<T>(
+export async function requestJson<T>(
   path: string,
   options: RequestInit = {},
   csrfToken?: string,
