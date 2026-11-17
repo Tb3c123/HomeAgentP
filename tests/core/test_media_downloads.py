@@ -1183,3 +1183,103 @@ def test_r03_dns_pinning_fail_closed_and_rebinding_protection(
     assert connected_targets == [("fd00::10", 8096)]
 
 
+def test_r05_media_scheduler_hardened_worker_timeout_shutdown_and_restart(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R05: Verify MediaCollectionScheduler worker guard, bounded shutdown, hung state, restart."""
+    import asyncio
+    import threading
+
+    from homeagentp_core.db.connection import db_session
+
+    settings = _make_media_settings(
+        tmp_path,
+        media_scheduler_enabled=True,
+        media_collection_timeout_seconds=1.0,
+        media_collection_interval_seconds=60,
+        media_min_persist_interval_seconds=0,
+    )
+    with db_session(settings.db_path) as conn:
+        apply_migrations(conn)
+
+    worker_entered = threading.Event()
+    release_worker = threading.Event()
+    active_workers = 0
+    max_concurrent_workers = 0
+    worker_count_lock = threading.Lock()
+
+    def _blocking_collector(cfg: Settings) -> dict[str, Any]:
+        nonlocal active_workers, max_concurrent_workers
+        with worker_count_lock:
+            active_workers += 1
+            max_concurrent_workers = max(max_concurrent_workers, active_workers)
+        try:
+            worker_entered.set()
+            release_worker.wait(timeout=2.0)
+            return {
+                "overall_status": "online",
+                "status": "online",
+                "collected_at": datetime.now(UTC).isoformat(),
+                "summary": {},
+                "services": {},
+                "alerts": [],
+            }
+        finally:
+            with worker_count_lock:
+                active_workers -= 1
+
+    async def _exercise() -> None:
+        sched = MediaCollectionScheduler(
+            settings,
+            collector_fn=_blocking_collector,
+            shutdown_timeout_seconds=0.05,
+        )
+        monkeypatch.setattr(sched, "_timeout_seconds", lambda: 0.08)
+
+        # 1. First run_once times out while worker thread remains blocked
+        res1 = await sched.run_once(force_persist=True)
+        assert res1 is None
+        assert worker_entered.is_set()
+        assert sched.last_status == "timeout"
+        assert sched.status_summary()["worker_thread_busy"] is True
+
+        # 2. Second run_once while worker is busy must skip (no overlapping worker/SQLite write)
+        res2 = await sched.run_once(force_persist=True)
+        assert res2 is None
+        assert sched.last_status == "skipped_worker_busy"
+        assert sched.skipped_overlap_count == 1
+        assert max_concurrent_workers == 1
+
+        # 3. Bounded shutdown while worker is hung reports stopping_worker_hung
+        hung_summary = await sched.stop(wait_timeout=0.05)
+        assert hung_summary["last_status"] == "stopping_worker_hung"
+        assert hung_summary["stopping"] is True
+        assert hung_summary["worker_thread_busy"] is True
+
+        # Cannot restart while worker is still hung
+        await sched.start()
+        assert sched.running is False
+        assert sched.last_status == "stopping_worker_hung"
+
+        # 4. Release worker, verify clean state and restart behavior
+        release_worker.set()
+        sched._worker_done_event.wait(timeout=2.0)
+        await asyncio.sleep(0.02)
+
+        assert sched.status_summary()["worker_thread_busy"] is False
+        assert sched.last_status == "stopped"
+
+        await sched.start()
+        assert sched.running is True
+        await asyncio.sleep(0.05)
+        stopped_summary = await sched.stop(wait_timeout=1.0)
+        assert stopped_summary["last_status"] == "stopped"
+        assert stopped_summary["stopping"] is False
+        assert stopped_summary["worker_thread_busy"] is False
+        assert sched.run_count >= 1
+        assert max_concurrent_workers == 1
+
+    asyncio.run(_exercise())
+
+
