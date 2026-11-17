@@ -117,3 +117,16 @@ conn.close()
    - Stop containers: `docker compose -f deploy/docker-compose.dev.yml down`.
    - Restore the previous SQLite backup file from `./data/backups/homeagentp-backup.db` to `./data/homeagentp.db`.
    - Checkout the previous known-good Git tag/commit and rebuild.
+
+---
+
+## 6. Troubleshooting
+
+| Symptom | Likely Cause | Safe Resolution |
+| :--- | :--- | :--- |
+| `ValidationError: HOMEAGENTP_SECRET_KEY uses a disallowed placeholder value` | `.env` still contains placeholder values from `.env.example`. | Generate a new random secret (`python3 -c "import secrets; print(secrets.token_urlsafe(32))"`) and update `.env`. |
+| `401 Unauthorized` on Dashboard or API calls | Session expired or cookie not sent over HTTP when `HOMEAGENTP_COOKIE_SECURE=true`. | For localhost HTTP dev, set `HOMEAGENTP_COOKIE_SECURE=false` in `.env` and sign in again. |
+| `403 Forbidden: Missing or invalid CSRF token` | Write request (`POST`/`PATCH`) missing `X-CSRF-Token` header or using an outdated token. | Refresh `/api/v1/auth/me` or sign out and back in so the UI holds the active session's CSRF token. |
+| `403 Forbidden: Symlinks are prohibited` or `SHA-256 checksum mismatch` | Script file in `HOMEAGENTP_SCRIPTS_DIR` was replaced with a symlink or edited without updating `manifest.json`. | Remove symlinks, restore the reviewed script file, or update the manifest SHA-256 after human review. |
+| `sqlite3.OperationalError: database is locked` | Concurrent write or stale process holding a lock on `homeagentp.db`. | Stop duplicate local `uvicorn` processes; `WAL` mode and `busy_timeout=5000` handle normal concurrency. |
+
