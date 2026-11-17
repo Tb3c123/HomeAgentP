@@ -1,0 +1,79 @@
+# HomeAgentP B+ — Local Staging / Development Docker Compose
+# Safety invariants enforced:
+# - No privileged: true
+# - No host network
+# - No /var/run/docker.sock
+# - No broad NAS mounts (/mnt/disk1, /mnt/disk2, /, /root)
+# - Non-root UIDs, read-only root filesystems, cap_drop: ALL, and resource limits
+
+name: homeagentp-dev
+
+services:
+  homeagentp-core:
+    build:
+      context: ../apps/core
+      dockerfile: Dockerfile
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid,nodev
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      HOMEAGENTP_ENV: ${HOMEAGENTP_ENV:-development}
+      HOMEAGENTP_DB_PATH: /data/homeagentp.db
+      HOMEAGENTP_SECRET_KEY: ${HOMEAGENTP_SECRET_KEY:?Provide HOMEAGENTP_SECRET_KEY in .env}
+      HOMEAGENTP_ADMIN_USERNAME: ${HOMEAGENTP_ADMIN_USERNAME:-admin}
+      HOMEAGENTP_ADMIN_PASSWORD: ${HOMEAGENTP_ADMIN_PASSWORD:?Provide HOMEAGENTP_ADMIN_PASSWORD in .env}
+      HOMEAGENTP_SCRIPTS_DIR: /config/scripts
+      HOMEAGENTP_REPORTS_DIR: /config/reports
+      HOMEAGENTP_SEED_EXAMPLES: ${HOMEAGENTP_SEED_EXAMPLES:-true}
+    volumes:
+      - homeagentp_core_data:/data:rw
+      - ../config/examples/scripts:/config/scripts:ro
+      - ../config/examples/reports:/config/reports:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 256M
+    restart: unless-stopped
+    networks:
+      - homeagentp_internal
+
+  homeagentp-web:
+    build:
+      context: ../apps/web
+      dockerfile: Dockerfile
+    user: "101:101"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+      - /var/cache/nginx:size=16m,noexec,nosuid,nodev
+      - /var/run:size=8m,noexec,nosuid,nodev
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - "127.0.0.1:${HOMEAGENTP_PORT:-8310}:8310"
+    depends_on:
+      homeagentp-core:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 128M
+    restart: unless-stopped
+    networks:
+      - homeagentp_internal
+
+volumes:
+  homeagentp_core_data:
+
+networks:
+  homeagentp_internal:
+    driver: bridge

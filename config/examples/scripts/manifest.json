@@ -1,0 +1,24 @@
+{
+  "version": "1.0",
+  "execution_policy": "disabled_in_phase_01",
+  "scripts": [
+    {
+      "slug": "disk-usage-report",
+      "name": "NAS Disk Usage Snapshot",
+      "description": "Read-only shell script to inspect non-tmpfs filesystem usage.",
+      "rel_path": "disk_usage_report.sh",
+      "sha256": "c40275641731043d6d6e1a240dc5c571dc226a5c7c5bd41a769e459f63045098",
+      "review_status": "allowlisted",
+      "category": "nas_guardian"
+    },
+    {
+      "slug": "mount-check-preview",
+      "name": "HDD Mount Point Inspector",
+      "description": "Read-only Python script that checks /proc/mounts for /mnt/disk1 and /mnt/disk2.",
+      "rel_path": "mount_check_preview.py",
+      "sha256": "d52ac04d82b35c5d44c1174a7e55514e0a13dd4d6ae97f7ad7f69ce22f877ad9",
+      "review_status": "reviewed",
+      "category": "nas_guardian"
+    }
+  ]
+}

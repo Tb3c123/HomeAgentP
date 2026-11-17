@@ -5,17 +5,17 @@ HomeAgentP is a personal AI workspace and home NAS operations platform.
 ## Architecture: B+ (Antigravity-first, Dashboard-light)
 
 - Official Google Antigravity is used directly by the owner for AI coding, research and generating scripts. HomeAgentP does not wrap or programmatically control consumer Antigravity CLI.
-- `homeagentp-web`: NAS dashboard, media/downloads overview, task board, script registry, reports and artifacts.
-- `homeagentp-core`: read-only NAS/media monitoring, scheduled rules, alerts and scoped integrations.
+- `homeagentp-web`: NAS dashboard, media/downloads overview, Home Automation overview, task board, read-only script registry, reports/artifacts, and safety settings.
+- `homeagentp-core`: authentication, SQLite metadata & migrations, read-only NAS/media monitoring foundation, task/attempt registry, and strict read-only script/report viewer.
 - Git and files are the handoff mechanism between AI work and HomeAgentP.
 
 ## Development scope
 
-1. Foundation: dashboard, authentication, SQLite metadata, task registry, two-container structure.
-2. NAS Guardian: metrics, mount checks, service health, read-only alerts.
-3. Media and downloads: Jellyfin, Sonarr, Radarr, Bazarr, Prowlarr, Seerr, qBittorrent.
-4. Workspace: scripts, tasks, artifacts, Git handoff and task briefs.
-5. Home Assistant, notifications, backup and operations.
+1. **Foundation (Phase 01)**: dashboard, authentication, SQLite metadata, task registry, read-only script viewer, two-container structure.
+2. **NAS Guardian (Phase 02)**: metrics, mount checks, service health, read-only alerts.
+3. **Media and downloads (Phase 03)**: Jellyfin, Sonarr, Radarr, Bazarr, Prowlarr, Seerr, qBittorrent.
+4. **Workspace (Phase 04)**: scripts, tasks, artifacts, Git handoff and task briefs.
+5. **Home Assistant, notifications, backup and operations (Phase 05–06)**.
 
 ## Safety
 
@@ -27,33 +27,59 @@ HomeAgentP is a personal AI workspace and home NAS operations platform.
 
 ## Status
 
-Planning and documentation only. No HomeAgentP application has been deployed.
+Phase 01 Foundation implemented on `feature/phase-01-foundation` and verified with isolated unit/integration tests (`pytest`, `ruff`, `mypy`, `tsc`, `vitest`, `vite build`). **Not deployed to NAS (`NOT_DEPLOYED`).**
 
+---
+
+## Local Development & Verification Guide (No NAS Access Required)
+
+### 1. Run `homeagentp-core` Tests, Linter & Typecheck
+
+```bash
+cd apps/core
+uv venv .venv
+uv pip install -e ".[dev]"
+.venv/bin/pytest -v
+.venv/bin/ruff check src ../../tests/core
+.venv/bin/mypy src
+```
+
+### 2. Run `homeagentp-web` Typecheck, Unit Tests & Production Build
+
+```bash
+cd apps/web
+npm install
+npm run typecheck
+npm test
+npm run build
+```
+
+### 3. Run Local Development Servers (Localhost Only)
+
+1. Copy `config/examples/.env.example` to `.env` and set a random `HOMEAGENTP_SECRET_KEY` and strong `HOMEAGENTP_ADMIN_PASSWORD`.
+2. Start Core on `127.0.0.1:8311`:
+   ```bash
+   cd apps/core
+   .venv/bin/uvicorn homeagentp_core.main:create_app --factory --host 127.0.0.1 --port 8311
+   ```
+3. Start Web on `127.0.0.1:8310`:
+   ```bash
+   cd apps/web
+   npm run dev
+   ```
+4. See [docs/operations/01-runbook-and-rollback.md](docs/operations/01-runbook-and-rollback.md) for containerized local staging (`deploy/docker-compose.dev.yml`), SQLite backup/restore verification, and rollback procedures.
+
+---
 
 ## Start here — Antigravity / external implementer (Tiếng Việt)
 
-**Không giao lệnh “cài tất cả HomeAgentP lên NAS” ngay trong prompt đầu tiên.** Repo hiện là baseline tài liệu, chưa có Web/Core source hoặc Docker Compose đã được kiểm thử.
+**Không giao lệnh “cài tất cả HomeAgentP lên NAS” ngay trong prompt đầu tiên.**
 
 1. Đọc [Product scope](docs/00-project-scope.md): HomeAgentP bao gồm NAS, media, downloads, Home Assistant, alerts, AI workspace, developer, security; **không chỉ Dev**.
 2. Đọc [AGENTS.md](AGENTS.md): các giới hạn mà AI coding agent và nhà thầu phải tuân thủ.
 3. Đọc [Antigravity handoff & ready-to-copy prompts](docs/ANTIGRAVITY_HANDOFF.md): cách kết nối GitHub bằng Antigravity chính thức, quy trình giao việc, PR và deployment authorization.
-4. Thực hiện [Phase 01 — Foundation](docs/plans/01-foundation.md) đầu tiên: Web/Core skeleton, auth, tasks, SQLite, script viewer, kiểm thử local. Không động tới NAS.
+4. Xem [Phase 01 — Foundation](docs/plans/01-foundation.md) và [Operations Runbook](docs/operations/01-runbook-and-rollback.md).
 5. Mỗi Phase bắt buộc có Git branch/PR, evidence thực tế và owner review. Merge code không tự cấp quyền triển khai.
 6. Chỉ sau khi Phase 01 đã được kiểm thử và review, xin **phê duyệt triển khai NAS riêng** với commands, ports, volumes, secrets, backup và rollback.
-
-### Một prompt mở đầu ngắn cho Antigravity Remote Agent
-
-```text
-Hãy mở repository Tb3c123/HomeAgentP bằng Antigravity chính thức.
-Đọc README.md, AGENTS.md, docs/00-project-scope.md,
-docs/ANTIGRAVITY_HANDOFF.md và docs/plans/01-foundation.md.
-Chỉ phân tích và lập implementation plan cho Phase 01.
-Không thay đổi NAS, không deploy, không truy cập Docker Socket hay credentials,
-không dùng Antigravity consumer CLI làm backend của HomeAgentP.
-Trình bày danh sách file, API, schema, test cases, security risks,
-sau đó dừng chờ tôi duyệt trước khi viết code.
-```
-
-**Alternative:** Google Antigravity Remote Control cho phép người dùng trực tiếp vận hành phiên CLI chính thức trên máy đang chạy; không đồng nghĩa HomeAgentP được gọi `agy` thay người dùng. Tham khảo [Remote Control](https://antigravity.google/docs/remote-control/) và [Remote Agents](https://antigravity.google/docs/remote-agents/).
 
 **Safety notice:** NAS đang có container terminal Antigravity cũ dùng root và Docker Socket RW, với port ttyd rộng. Không dùng container đó để chạy AI-generated deployment scripts cho đến khi security review và hardening được hoàn tất. Không lưu credentials trong repo.
