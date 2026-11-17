@@ -220,12 +220,35 @@ def recover_expired_leases(
     return int(dead_cur.rowcount + retry_cur.rowcount)
 
 
+def defer_due_non_critical_deliveries(
+    conn: sqlite3.Connection,
+    *,
+    next_attempt_at: datetime,
+    now: datetime | None = None,
+) -> int:
+    """Defer due non-critical deliveries to next_attempt_at without consuming attempt_count."""
+    now_iso = _utc_now(now).isoformat()
+    defer_iso = next_attempt_at.isoformat()
+    cur = conn.execute(
+        """
+        UPDATE notification_deliveries
+        SET next_attempt_at = ?
+        WHERE status IN ('pending', 'failed')
+          AND severity != 'critical'
+          AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+        """,
+        (defer_iso, now_iso),
+    )
+    return int(cur.rowcount)
+
+
 def claim_next_delivery(
     conn: sqlite3.Connection,
     *,
     worker_id: str,
     lease_seconds: int = 60,
     max_attempts: int = 3,
+    critical_only: bool = False,
     now: datetime | None = None,
 ) -> NotificationDeliveryOut | None:
     """Atomically claim the highest-priority due delivery with a lease timeout."""
@@ -238,10 +261,11 @@ def claim_next_delivery(
         conn.execute("BEGIN IMMEDIATE")
         started_tx = True
 
+    severity_clause = "AND severity = 'critical'" if critical_only else ""
     try:
         recover_expired_leases(conn, max_attempts=max_attempts, now=current)
         row = conn.execute(
-            """
+            f"""
             UPDATE notification_deliveries
             SET status = 'in_flight',
                 claimed_by = ?,
@@ -250,6 +274,7 @@ def claim_next_delivery(
             WHERE id = (
                 SELECT id FROM notification_deliveries
                 WHERE status IN ('pending', 'failed')
+                  {severity_clause}
                   AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
                 ORDER BY
                     CASE severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END,
@@ -257,7 +282,7 @@ def claim_next_delivery(
                 LIMIT 1
             )
             RETURNING *
-            """,
+            """,  # noqa: S608
             (worker_id, lease_iso, now_iso),
         ).fetchone()
         if started_tx:

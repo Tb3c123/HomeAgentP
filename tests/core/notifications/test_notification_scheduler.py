@@ -87,23 +87,56 @@ def test_outbox_cycle_delivery_rate_limit_429_4xx_and_lease_recovery(tmp_path: P
         assert res1["sent"] == 1
         assert len(sent_texts) == 1
 
-        # Enqueue second alert within rate_limit_count=1 window -> suppressed_rate_limit
-        d2 = enqueue_notification(
+        # Enqueue a warning AND a critical alert within rate_limit_count=1 window:
+        # - Critical alert MUST bypass rate limit and be delivered immediately
+        # - Warning alert MUST be deferred with bounded next_attempt_at (not silently dropped)
+        d_warn = enqueue_notification(
             conn,
-            incident_key="nas:nas_b:t1:triggered",
+            incident_key="nas:nas_b_warn:t1:triggered",
+            source_domain="nas",
+            severity="warning",
+            destination_masked="***6789",
+            message="Disk 85%",
+            now=t0 + timedelta(seconds=10),
+        )
+        d_crit = enqueue_notification(
+            conn,
+            incident_key="nas:nas_b_crit:t1:triggered",
             source_domain="nas",
             severity="critical",
             destination_masked="***6789",
-            message="Disk full",
+            message="Disk missing!",
             now=t0 + timedelta(seconds=10),
         )
         res2 = process_notification_outbox_cycle(
             conn, settings, sender=sender, now=t0 + timedelta(seconds=10)
         )
         assert res2["rate_limited"] == 1
-        assert len(sent_texts) == 1
-        d2_row = next(r for r in list_deliveries(conn, limit=20) if r.id == d2.id)
-        assert d2_row.status == "suppressed_rate_limit"
+        assert res2["sent"] == 1  # critical alert delivered!
+        assert len(sent_texts) == 2
+
+        d_crit_row = next(r for r in list_deliveries(conn, limit=20) if r.id == d_crit.id)
+        d_warn_row = next(r for r in list_deliveries(conn, limit=20) if r.id == d_warn.id)
+        assert d_crit_row.status == "sent"
+        assert d_warn_row.status == "pending"
+        assert d_warn_row.attempt_count == 0
+        assert d_warn_row.next_attempt_at is not None
+        assert d_warn_row.next_attempt_at > (t0 + timedelta(seconds=10)).isoformat()
+
+        # Polling again within the window does NOT busy-retry or emit suppression records
+        res2_repeat = process_notification_outbox_cycle(
+            conn, settings, sender=sender, now=t0 + timedelta(seconds=20)
+        )
+        assert res2_repeat["sent"] == 0
+        assert res2_repeat["rate_limited"] == 0
+
+        # Once the 300s window resets (past t0 and t0+10s), deferred warning is delivered!
+        res2_recovered = process_notification_outbox_cycle(
+            conn, settings, sender=sender, now=t0 + timedelta(seconds=315)
+        )
+        assert res2_recovered["sent"] == 1
+        d_warn_sent = next(r for r in list_deliveries(conn, limit=20) if r.id == d_warn.id)
+        assert d_warn_sent.status == "sent"
 
         # Increase rate limit; test 429 Retry-After then 400 dead_letter
         conn.execute("UPDATE notification_preferences SET rate_limit_count = 10 WHERE id = 1")
