@@ -173,3 +173,7 @@ All Phase 05 tables are additive and leave `001`–`004` tables untouched:
 - Only allowlisted scalar attributes (`unit_of_measurement`, `device_class`, `friendly_name`, `state_class`, `icon`) are extracted (max 8 keys, scalar values truncated to 128 chars, serialized `attributes_json` capped at `1024` bytes; `state` capped at `128` chars).
 - HTTP responses are capped at `524_288` bytes (`ha_max_response_bytes`), staleness threshold defaults to `300s` (`ha_snapshot_stale_seconds`), write throttling defaults to `30s` (`ha_min_persist_interval_seconds`), and snapshot history is bounded to `200` rows (`ha_history_retention_limit`).
 
+### 10.5 Single-Destination MVP & Future Multi-Chat Design
+- **Phase 05 MVP**: `HOMEAGENTP_TELEGRAM_ALLOWED_CHAT_IDS` explicitly supports **at most one** configured Telegram destination. Configuration validation (`Settings`) and `TelegramOutboundSender` reject multiple chat IDs rather than silently using only the first entry.
+- **Future Multi-Chat Design**: Supporting multiple destinations in a future phase will require per-destination fan-out rows at enqueue time (so each destination has independent `in_flight` claim/retry/dead-letter state and independent `idx_notification_deliveries_active_unique` keyed by `(incident_key, destination_masked)`), plus per-destination preference/routing rules.
+

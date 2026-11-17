@@ -100,6 +100,11 @@ class TelegramOutboundSender:
                 "missing_chat_ids",
                 "No allowlisted Telegram chat IDs configured.",
             )
+        if len(self._allowed_chat_ids) > 1:
+            raise TelegramConfigError(
+                "multiple_chat_ids_unsupported",
+                "Phase 05 MVP supports at most one allowlisted Telegram chat ID.",
+            )
         self._timeout_seconds = max(0.5, float(timeout_seconds))
         self._transport = transport
 

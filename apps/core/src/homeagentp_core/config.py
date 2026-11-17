@@ -219,6 +219,13 @@ class Settings(BaseSettings):
                 "nas_container_mem_warn_percent must be less than "
                 "nas_container_mem_critical_percent."
             )
+
+        cleaned_chats = [c.strip() for c in self.telegram_allowed_chat_ids if c.strip()]
+        if len(cleaned_chats) > 1:
+            raise ValueError(
+                "Phase 05 MVP supports at most one configured Telegram destination in "
+                "HOMEAGENTP_TELEGRAM_ALLOWED_CHAT_IDS."
+            )
         return self
 
     def redacted_summary(self) -> dict[str, object]:

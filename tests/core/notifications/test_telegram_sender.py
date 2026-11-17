@@ -41,6 +41,21 @@ def test_telegram_disabled_by_default_and_chat_id_allowlist(
         TelegramOutboundSender.from_settings(disabled_settings)
     assert exc_dis.value.code == "telegram_disabled"
 
+    with pytest.raises(ValueError, match="at most one"):
+        _make_tg_settings(
+            tmp_path,
+            telegram_enabled=True,
+            telegram_bot_token=FAKE_TOKEN,
+            telegram_allowed_chat_ids=["-100111222333", "-100444555666"],
+        )
+
+    with pytest.raises(TelegramConfigError) as exc_multi:
+        TelegramOutboundSender(
+            bot_token=FAKE_TOKEN,
+            allowed_chat_ids=["-100111222333", "-100444555666"],
+        )
+    assert exc_multi.value.code == "multiple_chat_ids_unsupported"
+
     sender = TelegramOutboundSender(
         bot_token=FAKE_TOKEN,
         allowed_chat_ids=["-100111222333"],
