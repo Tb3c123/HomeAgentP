@@ -279,3 +279,96 @@ def test_ha_scheduler_persists_unavailable_and_isolates_failures(tmp_path: Path)
         await ha_sched.stop()
 
     asyncio.run(_run())
+
+
+def test_sqlite_remains_writable_during_blocking_telegram_http(tmp_path: Path) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    from homeagentp_core.modules.notifications.scheduler import run_notification_outbox_cycle
+
+    settings = _make_sched_settings(
+        tmp_path,
+        telegram_enabled=True,
+        telegram_bot_token=FAKE_TOKEN,
+        telegram_allowed_chat_ids=["-100123456789"],
+    )
+    app = create_app(settings)
+    with TestClient(app):
+        pass
+
+    with db_session(settings.db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO notification_preferences (
+                id, telegram_enabled, min_severity, notify_on_resolve,
+                cooldown_seconds, rate_limit_count, rate_limit_window_seconds,
+                updated_by, updated_at
+            ) VALUES (1, 1, 'warning', 1, 900, 10, 300, 'admin', '2026-11-17T00:00:00Z')
+            """
+        )
+        d1 = enqueue_notification(
+            conn,
+            incident_key="nas:concurrent_http:t1:triggered",
+            source_domain="nas",
+            severity="warning",
+            destination_masked="***6789",
+            message="Concurrent HTTP test",
+        )
+
+    entered = threading.Event()
+    release = threading.Event()
+
+    def blocking_http(request: httpx.Request) -> httpx.Response:
+        entered.set()
+        assert release.wait(timeout=5.0)
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 101}})
+
+    sender = TelegramOutboundSender(
+        bot_token=FAKE_TOKEN,
+        allowed_chat_ids=["-100123456789"],
+        transport=httpx.MockTransport(blocking_http),
+    )
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(
+            run_notification_outbox_cycle,
+            settings.db_path,
+            settings,
+            sender=sender,
+            worker_id="tx-test-worker",
+        )
+        assert entered.wait(timeout=5.0)
+
+        # Independent second SQLite connection must see committed 'in_flight' AND be able to write
+        with db_session(settings.db_path) as conn2:
+            row = conn2.execute(
+                "SELECT status, claimed_by FROM notification_deliveries WHERE id = ?",
+                (d1.id,),
+            ).fetchone()
+            assert row is not None
+            assert row["status"] == "in_flight"
+            assert row["claimed_by"] == "tx-test-worker"
+
+            conn2.execute(
+                """
+                INSERT INTO nas_alerts (
+                    alert_key, code, severity, category, component, target, message,
+                    status, first_seen_at, last_seen_at, occurrences
+                )
+                VALUES (
+                    'concurrent_write', 'disk_warn', 'warning', 'disk', 'disk', '/mnt/d1', 'ok',
+                    'active', '2026-11-17T00:00:00Z', '2026-11-17T00:00:00Z', 1
+                )
+                """
+            )
+
+        release.set()
+        res = future.result(timeout=5.0)
+        assert res["sent"] == 1
+
+    with db_session(settings.db_path) as conn3:
+        final_row = conn3.execute(
+            "SELECT status FROM notification_deliveries WHERE id = ?",
+            (d1.id,),
+        ).fetchone()
+        assert final_row is not None and final_row["status"] == "sent"

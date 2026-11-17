@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from homeagentp_core.config import Settings
@@ -20,14 +21,65 @@ from homeagentp_core.modules.notifications.outbox import (
     recover_expired_leases,
 )
 from homeagentp_core.modules.notifications.preferences import get_notification_preferences
-from homeagentp_core.modules.notifications.telegram import TelegramOutboundSender
+from homeagentp_core.modules.notifications.schemas import NotificationDeliveryOut
+from homeagentp_core.modules.notifications.telegram import (
+    TelegramConfigError,
+    TelegramOutboundSender,
+    validate_telegram_chat_id,
+)
 from homeagentp_core.scheduler import HardenedPeriodicScheduler
 
 MAX_DELIVERY_BATCH_PER_CYCLE = 10
 
 
-def process_notification_outbox_cycle(
+def _claim_step(
     conn: sqlite3.Connection,
+    *,
+    settings: Settings,
+    worker_id: str,
+    rate_limit_count: int,
+    rate_limit_window_seconds: int,
+    current: datetime,
+) -> tuple[NotificationDeliveryOut | None, bool]:
+    """Check sliding-window rate limit and claim the next due delivery inside a short tx."""
+    window_cutoff = (current - timedelta(seconds=rate_limit_window_seconds)).isoformat()
+    sent_in_window = int(
+        conn.execute(
+            "SELECT COUNT(*) FROM notification_deliveries "
+            "WHERE status = 'sent' AND sent_at >= ?",
+            (window_cutoff,),
+        ).fetchone()[0]
+    )
+    delivery = claim_next_delivery(
+        conn,
+        worker_id=worker_id,
+        lease_seconds=settings.notification_lease_seconds,
+        max_attempts=settings.notification_max_attempts,
+        now=current,
+    )
+    if delivery is None:
+        return None, False
+
+    if sent_in_window >= rate_limit_count:
+        conn.execute(
+            """
+            UPDATE notification_deliveries
+            SET status = 'suppressed_rate_limit',
+                claimed_by = '',
+                lease_expires_at = NULL,
+                next_attempt_at = NULL,
+                last_error_redacted = 'rate_limit_exceeded'
+            WHERE id = ? AND status = 'in_flight' AND claimed_by = ?
+            """,
+            (delivery.id, worker_id),
+        )
+        return delivery, True
+
+    return delivery, False
+
+
+def run_notification_outbox_cycle(
+    db_path: Path,
     settings: Settings,
     *,
     sender: TelegramOutboundSender | None = None,
@@ -35,18 +87,37 @@ def process_notification_outbox_cycle(
     max_batch: int = MAX_DELIVERY_BATCH_PER_CYCLE,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Evaluate alerts, recover expired leases, and send a bounded batch of due notifications."""
-    current = now if now is not None else datetime.now(UTC)
-    eval_res = evaluate_alerts_to_outbox(conn, settings, now=current)
-    recovered = recover_expired_leases(
-        conn,
-        max_attempts=settings.notification_max_attempts,
-        now=current,
-    )
+    """Execute one outbox cycle using short committed SQLite transactions.
 
-    prefs = get_notification_preferences(conn, settings)
+    Guarantees ZERO open SQLite write transactions during outbound Telegram HTTP I/O.
+    """
+    current = now if now is not None else datetime.now(UTC)
+
+    # Tx 1: Evaluate alerts, recover expired leases, read preferences & validate destination
+    with db_session(db_path) as conn:
+        eval_res = evaluate_alerts_to_outbox(conn, settings, now=current)
+        recovered = recover_expired_leases(
+            conn,
+            max_attempts=settings.notification_max_attempts,
+            now=current,
+        )
+        prefs = get_notification_preferences(conn, settings)
+
     ready, chat_ids = is_telegram_channel_ready(settings, prefs)
-    if not ready:
+    if not ready or len(chat_ids) != 1:
+        return {
+            "status": "disabled",
+            "enqueued": eval_res.enqueued,
+            "recovered": recovered,
+            "sent": 0,
+            "failed": 0,
+            "dead_letter": 0,
+            "rate_limited": 0,
+        }
+
+    try:
+        target_chat_id = validate_telegram_chat_id(chat_ids[0], chat_ids)
+    except TelegramConfigError:
         return {
             "status": "disabled",
             "enqueued": eval_res.enqueued,
@@ -60,50 +131,152 @@ def process_notification_outbox_cycle(
     active_sender = (
         sender if sender is not None else TelegramOutboundSender.from_settings(settings)
     )
-    target_chat_id = chat_ids[0]
     sent = 0
     failed = 0
     dead_letter = 0
     rate_limited = 0
 
     for _ in range(max(1, max_batch)):
-        window_cutoff = (
-            current - timedelta(seconds=prefs.rate_limit_window_seconds)
-        ).isoformat()
-        sent_in_window = int(
-            conn.execute(
-                "SELECT COUNT(*) FROM notification_deliveries "
-                "WHERE status = 'sent' AND sent_at >= ?",
-                (window_cutoff,),
-            ).fetchone()[0]
-        )
+        # Tx 2: Short committed claim transaction
+        with db_session(db_path) as conn:
+            delivery, was_rate_limited = _claim_step(
+                conn,
+                settings=settings,
+                worker_id=worker_id,
+                rate_limit_count=prefs.rate_limit_count,
+                rate_limit_window_seconds=prefs.rate_limit_window_seconds,
+                current=current,
+            )
 
-        delivery = claim_next_delivery(
-            conn,
-            worker_id=worker_id,
-            lease_seconds=settings.notification_lease_seconds,
-            max_attempts=settings.notification_max_attempts,
-            now=current,
-        )
         if delivery is None:
             break
-
-        if sent_in_window >= prefs.rate_limit_count:
-            conn.execute(
-                """
-                UPDATE notification_deliveries
-                SET status = 'suppressed_rate_limit',
-                    claimed_by = '',
-                    lease_expires_at = NULL,
-                    next_attempt_at = NULL,
-                    last_error_redacted = 'rate_limit_exceeded'
-                WHERE id = ? AND status = 'in_flight' AND claimed_by = ?
-                """,
-                (delivery.id, worker_id),
-            )
+        if was_rate_limited:
             rate_limited += 1
             continue
 
+        # Outbound HTTP I/O happens with NO open SQLite connection or write transaction
+        result = active_sender.send_message(
+            chat_id=target_chat_id,
+            text=delivery.message_redacted,
+        )
+
+        # Tx 3: Short committed completion/failure transaction
+        with db_session(db_path) as conn:
+            if result.ok:
+                complete_delivery(conn, delivery.id, worker_id=worker_id, now=current)
+                sent += 1
+            else:
+                delay = (
+                    result.retry_after_seconds
+                    if result.retry_after_seconds is not None
+                    else min(300, 15 * (2 ** max(0, delivery.attempt_count - 1)))
+                )
+                exhausted = result.permanent or (
+                    delivery.attempt_count >= settings.notification_max_attempts
+                )
+                fail_delivery(
+                    conn,
+                    delivery.id,
+                    worker_id=worker_id,
+                    error_message=result.error_message,
+                    retry_delay_seconds=delay,
+                    max_attempts=settings.notification_max_attempts,
+                    permanent=result.permanent,
+                    now=current,
+                )
+                if exhausted:
+                    dead_letter += 1
+                else:
+                    failed += 1
+
+    # Tx 4: Short committed terminal retention pruning
+    with db_session(db_path) as conn:
+        prune_terminal_deliveries(
+            conn, retention_limit=settings.notification_history_retention_limit
+        )
+
+    return {
+        "status": "ok" if failed == 0 and dead_letter == 0 else "degraded",
+        "enqueued": eval_res.enqueued,
+        "recovered": recovered,
+        "sent": sent,
+        "failed": failed,
+        "dead_letter": dead_letter,
+        "rate_limited": rate_limited,
+    }
+
+
+def process_notification_outbox_cycle(
+    conn: sqlite3.Connection,
+    settings: Settings,
+    *,
+    sender: TelegramOutboundSender | None = None,
+    worker_id: str = "notif-worker",
+    max_batch: int = MAX_DELIVERY_BATCH_PER_CYCLE,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Evaluate alerts, recover expired leases, and send a bounded batch using short commits."""
+    current = now if now is not None else datetime.now(UTC)
+    eval_res = evaluate_alerts_to_outbox(conn, settings, now=current)
+    recovered = recover_expired_leases(
+        conn,
+        max_attempts=settings.notification_max_attempts,
+        now=current,
+    )
+    prefs = get_notification_preferences(conn, settings)
+    conn.commit()
+
+    ready, chat_ids = is_telegram_channel_ready(settings, prefs)
+    if not ready or len(chat_ids) != 1:
+        return {
+            "status": "disabled",
+            "enqueued": eval_res.enqueued,
+            "recovered": recovered,
+            "sent": 0,
+            "failed": 0,
+            "dead_letter": 0,
+            "rate_limited": 0,
+        }
+
+    try:
+        target_chat_id = validate_telegram_chat_id(chat_ids[0], chat_ids)
+    except TelegramConfigError:
+        return {
+            "status": "disabled",
+            "enqueued": eval_res.enqueued,
+            "recovered": recovered,
+            "sent": 0,
+            "failed": 0,
+            "dead_letter": 0,
+            "rate_limited": 0,
+        }
+
+    active_sender = (
+        sender if sender is not None else TelegramOutboundSender.from_settings(settings)
+    )
+    sent = 0
+    failed = 0
+    dead_letter = 0
+    rate_limited = 0
+
+    for _ in range(max(1, max_batch)):
+        delivery, was_rate_limited = _claim_step(
+            conn,
+            settings=settings,
+            worker_id=worker_id,
+            rate_limit_count=prefs.rate_limit_count,
+            rate_limit_window_seconds=prefs.rate_limit_window_seconds,
+            current=current,
+        )
+        conn.commit()
+
+        if delivery is None:
+            break
+        if was_rate_limited:
+            rate_limited += 1
+            continue
+
+        # No open transaction during outbound HTTP
         result = active_sender.send_message(
             chat_id=target_chat_id,
             text=delivery.message_redacted,
@@ -134,10 +307,12 @@ def process_notification_outbox_cycle(
                 dead_letter += 1
             else:
                 failed += 1
+        conn.commit()
 
     prune_terminal_deliveries(
         conn, retention_limit=settings.notification_history_retention_limit
     )
+    conn.commit()
     return {
         "status": "ok" if failed == 0 and dead_letter == 0 else "degraded",
         "enqueued": eval_res.enqueued,
@@ -185,11 +360,10 @@ class NotificationDeliveryScheduler(HardenedPeriodicScheduler):
         return str(snapshot.get("status", "ok"))
 
     def _execute_sync(self, *, force_persist: bool = False) -> dict[str, Any]:
-        with db_session(self._settings.db_path) as conn:
-            summary = process_notification_outbox_cycle(
-                conn,
-                self._settings,
-                sender=self._sender,
-                worker_id="notif-scheduler-worker",
-            )
+        summary = run_notification_outbox_cycle(
+            self._settings.db_path,
+            self._settings,
+            sender=self._sender,
+            worker_id="notif-scheduler-worker",
+        )
         return {"snapshot_id": 0, "snapshot": summary}
