@@ -15,10 +15,12 @@ from homeagentp_core.db.connection import db_session
 from homeagentp_core.db.migrator import apply_migrations
 from homeagentp_core.logging import configure_logging
 from homeagentp_core.modules.health.router import router as health_router
+from homeagentp_core.modules.home_assistant.router import router as home_assistant_router
 from homeagentp_core.modules.media.router import router as media_router
 from homeagentp_core.modules.media.scheduler import MediaCollectionScheduler
 from homeagentp_core.modules.nas.router import router as nas_router
 from homeagentp_core.modules.nas.scheduler import NasCollectionScheduler
+from homeagentp_core.modules.notifications.router import router as notifications_router
 from homeagentp_core.modules.reports.router import router as reports_router
 from homeagentp_core.modules.scripts.router import router as scripts_router
 from homeagentp_core.modules.tasks.router import router as tasks_router
@@ -87,6 +89,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(nas_router)
     app.include_router(media_router)
+    app.include_router(home_assistant_router)
+    app.include_router(notifications_router)
     app.include_router(tasks_router)
     app.include_router(workspace_router)
     app.include_router(scripts_router)
