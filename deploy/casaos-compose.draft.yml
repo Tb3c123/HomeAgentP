@@ -1,0 +1,72 @@
+# DRAFT ONLY — DO NOT DEPLOY TO NAS WITHOUT SEPARATE OWNER APPROVAL (Phase 06)
+# HomeAgentP B+ Two-Container CasaOS Application Draft Specification
+# Target hardware profile: Debian 12 Bookworm, Intel N200 (4 vCPU, ~15 GiB RAM)
+
+name: homeagentp
+
+services:
+  homeagentp-core:
+    image: ghcr.io/tb3c123/homeagentp-core:0.1.0-draft
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid,nodev
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      HOMEAGENTP_ENV: production
+      HOMEAGENTP_DB_PATH: /data/homeagentp.db
+      HOMEAGENTP_SECRET_KEY: ${HOMEAGENTP_SECRET_KEY}
+      HOMEAGENTP_ADMIN_USERNAME: ${HOMEAGENTP_ADMIN_USERNAME}
+      HOMEAGENTP_ADMIN_PASSWORD: ${HOMEAGENTP_ADMIN_PASSWORD}
+      HOMEAGENTP_COOKIE_SECURE: "true"
+      HOMEAGENTP_SCRIPTS_DIR: /config/scripts
+      HOMEAGENTP_REPORTS_DIR: /config/reports
+      HOMEAGENTP_SEED_EXAMPLES: "false"
+    volumes:
+      - homeagentp_sqlite_data:/data:rw
+      - ./config/scripts:/config/scripts:ro
+      - ./config/reports:/config/reports:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 256M
+    restart: unless-stopped
+    networks:
+      - homeagentp_net
+
+  homeagentp-web:
+    image: ghcr.io/tb3c123/homeagentp-web:0.1.0-draft
+    user: "101:101"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+      - /var/cache/nginx:size=16m,noexec,nosuid,nodev
+      - /var/run:size=8m,noexec,nosuid,nodev
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - "127.0.0.1:8310:8310"
+    depends_on:
+      homeagentp-core:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 128M
+    restart: unless-stopped
+    networks:
+      - homeagentp_net
+
+volumes:
+  homeagentp_sqlite_data:
+
+networks:
+  homeagentp_net:
+    driver: bridge
