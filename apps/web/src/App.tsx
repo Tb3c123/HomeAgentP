@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { HomeAutomationPanel } from "./components/homeAutomation/HomeAutomationPanel";
 import { MediaDashboard } from "./components/media/MediaDashboard";
 import {
   ReportsSection,
@@ -6,7 +7,7 @@ import {
   SettingsSection,
 } from "./components/sections/AdminSections";
 import { NasGuardianSection } from "./components/sections/NasGuardianSection";
-import { HomeAutomationSection, OverviewSection } from "./components/sections/OverviewSection";
+import { OverviewSection } from "./components/sections/OverviewSection";
 import { TasksSection } from "./components/sections/TasksSection";
 import { WorkspaceSection } from "./components/workspace/WorkspaceSection";
 import { useAuthSession } from "./hooks/useAuthSession";
@@ -256,8 +257,8 @@ export const App: React.FC = () => {
           />
         )}
 
-        {activeSection === "home_automation" && overview && (
-          <HomeAutomationSection overview={overview} />
+        {activeSection === "home_automation" && (
+          <HomeAutomationPanel user={user} />
         )}
 
         {activeSection === "tasks" && (
