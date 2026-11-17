@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -63,10 +64,11 @@ def isolated_env(tmp_path: Path) -> Settings:
 
 
 @pytest.fixture
-def client(isolated_env: Settings) -> TestClient:
-    """Return a FastAPI TestClient wired to the isolated environment."""
+def client(isolated_env: Settings) -> Iterator[TestClient]:
+    """Return a FastAPI TestClient entered via context manager so lifespan runs once (F04)."""
     app = create_app(isolated_env)
-    return TestClient(app)
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 @pytest.fixture

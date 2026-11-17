@@ -1,4 +1,4 @@
-"""SQLite schema migration runner with SHA-256 checksum verification."""
+"""Atomic SQLite schema migration runner with SHA-256 checksum verification."""
 
 from __future__ import annotations
 
@@ -11,7 +11,13 @@ MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 
 def apply_migrations(conn: sqlite3.Connection, migrations_dir: Path = MIGRATIONS_DIR) -> list[str]:
-    """Apply all unapplied SQL migrations in lexicographical order and verify checksums."""
+    """Apply all unapplied SQL migrations atomically and verify SHA-256 checksums.
+
+    Atomicity Guarantee:
+    Each migration file and its corresponding INSERT INTO schema_migrations are executed
+    inside an explicit 'BEGIN IMMEDIATE ... COMMIT' transaction block. If any statement in
+    the migration fails, the entire migration (including DDL statements) is rolled back.
+    """
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -21,11 +27,12 @@ def apply_migrations(conn: sqlite3.Connection, migrations_dir: Path = MIGRATIONS
         );
         """
     )
+    conn.commit()
 
     existing_rows = conn.execute(
         "SELECT version, checksum FROM schema_migrations ORDER BY version ASC"
     ).fetchall()
-    applied = { str(row["version"]): str(row["checksum"]) for row in existing_rows }
+    applied = {str(row["version"]): str(row["checksum"]) for row in existing_rows}
 
     applied_now: list[str] = []
     sql_files = sorted(migrations_dir.glob("*.sql"))
@@ -42,12 +49,21 @@ def apply_migrations(conn: sqlite3.Connection, migrations_dir: Path = MIGRATIONS
                 )
             continue
 
-        conn.executescript(sql_content)
-        conn.execute(
-            "INSERT INTO schema_migrations (version, checksum, applied_at) VALUES (?, ?, ?)",
-            (version, checksum, datetime.now(UTC).isoformat()),
-        )
-        conn.commit()
+        if conn.in_transaction:
+            conn.commit()
+
+        try:
+            conn.executescript(f"BEGIN IMMEDIATE;\n{sql_content}")
+            conn.execute(
+                "INSERT INTO schema_migrations (version, checksum, applied_at) VALUES (?, ?, ?)",
+                (version, checksum, datetime.now(UTC).isoformat()),
+            )
+            conn.commit()
+        except Exception:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
+
         applied_now.append(version)
 
     return applied_now

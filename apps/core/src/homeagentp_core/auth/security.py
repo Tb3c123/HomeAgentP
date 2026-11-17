@@ -138,7 +138,11 @@ def get_current_principal(
     session_cookie: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
     settings: Settings = Depends(get_settings),
 ) -> AuthenticatedPrincipal:
-    """Validate the session cookie and return the authenticated principal."""
+    """Validate the session cookie and return the authenticated principal.
+
+    Note: Exits db_session before raising HTTPException so expired session deletions
+    are committed rather than rolled back.
+    """
     if not session_cookie:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -147,6 +151,8 @@ def get_current_principal(
 
     session_id_hash = hash_session_token(session_cookie, settings.secret_key)
     now_iso = datetime.now(UTC).isoformat()
+    principal: AuthenticatedPrincipal | None = None
+    error_detail = "Invalid or expired session."
 
     with db_session(settings.db_path) as conn:
         row = conn.execute(
@@ -166,32 +172,31 @@ def get_current_principal(
             (session_id_hash,),
         ).fetchone()
 
-        if row is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired session.",
-            )
+        if row is not None:
+            if int(row["is_active"]) != 1 or str(row["expires_at"]) <= now_iso:
+                conn.execute("DELETE FROM sessions WHERE id = ?", (session_id_hash,))
+                error_detail = "Session expired."
+            else:
+                conn.execute(
+                    "UPDATE sessions SET last_seen_at = ? WHERE id = ?",
+                    (now_iso, session_id_hash),
+                )
+                principal = AuthenticatedPrincipal(
+                    user_id=int(row["user_id"]),
+                    username=str(row["username"]),
+                    role=str(row["role"]),
+                    session_id_hash=str(row["session_id_hash"]),
+                    csrf_token=str(row["csrf_token"]),
+                    expires_at=str(row["expires_at"]),
+                )
 
-        if int(row["is_active"]) != 1 or str(row["expires_at"]) <= now_iso:
-            conn.execute("DELETE FROM sessions WHERE id = ?", (session_id_hash,))
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Session expired.",
-            )
-
-        conn.execute(
-            "UPDATE sessions SET last_seen_at = ? WHERE id = ?",
-            (now_iso, session_id_hash),
+    if principal is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=error_detail,
         )
 
-        return AuthenticatedPrincipal(
-            user_id=int(row["user_id"]),
-            username=str(row["username"]),
-            role=str(row["role"]),
-            session_id_hash=str(row["session_id_hash"]),
-            csrf_token=str(row["csrf_token"]),
-            expires_at=str(row["expires_at"]),
-        )
+    return principal
 
 
 def require_csrf(

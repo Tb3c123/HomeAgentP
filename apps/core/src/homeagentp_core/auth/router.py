@@ -40,14 +40,21 @@ def login(
     response: Response,
     settings: Settings = Depends(get_settings),
 ) -> AuthUserResponse:
-    """Authenticate user credentials and issue an HttpOnly session cookie + CSRF token."""
+    """Authenticate user credentials and issue an HttpOnly session cookie + CSRF token.
+
+    Important (F01): If authentication fails, the audit_logs record is committed by
+    exiting db_session cleanly BEFORE raising HTTPException(401).
+    """
     client_ip = request.client.host if request.client else "unknown"
     user_agent = request.headers.get("user-agent", "")
+    cleaned_username = payload.username.strip()
+
+    auth_result: tuple[str, str, str, str, str] | None = None
 
     with db_session(settings.db_path) as conn:
         row = conn.execute(
             "SELECT id, username, password_hash, role, is_active FROM users WHERE username = ?",
-            (payload.username.strip(),),
+            (cleaned_username,),
         ).fetchone()
 
         if (
@@ -57,33 +64,43 @@ def login(
         ):
             record_audit_log(
                 conn,
-                actor=payload.username.strip() or "anonymous",
+                actor=cleaned_username or "anonymous",
                 action="auth.login_failed",
                 target_type="session",
-                details={"username": payload.username.strip()},
+                details={"username": cleaned_username},
                 ip_address=client_ip,
             )
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid username or password.",
+        else:
+            raw_token, csrf_token, expires_at = create_user_session(
+                conn,
+                user_id=int(row["id"]),
+                settings=settings,
+                ip_address=client_ip,
+                user_agent=user_agent,
+            )
+            record_audit_log(
+                conn,
+                actor=str(row["username"]),
+                action="auth.login_succeeded",
+                target_type="session",
+                details={"role": str(row["role"])},
+                ip_address=client_ip,
+            )
+            auth_result = (
+                str(row["username"]),
+                str(row["role"]),
+                raw_token,
+                csrf_token,
+                expires_at,
             )
 
-        raw_token, csrf_token, expires_at = create_user_session(
-            conn,
-            user_id=int(row["id"]),
-            settings=settings,
-            ip_address=client_ip,
-            user_agent=user_agent,
-        )
-        record_audit_log(
-            conn,
-            actor=str(row["username"]),
-            action="auth.login_succeeded",
-            target_type="session",
-            details={"role": str(row["role"])},
-            ip_address=client_ip,
+    if auth_result is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password.",
         )
 
+    username, role, raw_token, csrf_token, expires_at = auth_result
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=raw_token,
@@ -94,8 +111,8 @@ def login(
         path="/",
     )
     return AuthUserResponse(
-        username=str(row["username"]),
-        role=str(row["role"]),
+        username=username,
+        role=role,
         csrf_token=csrf_token,
         expires_at=expires_at,
     )

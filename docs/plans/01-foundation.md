@@ -25,12 +25,12 @@ No real NAS admin integration, Docker socket, root, cron on host, media writes, 
 7. [x] Write startup/shutdown and rollback runbook (`docs/operations/01-runbook-and-rollback.md`); provide sample `.env.example` with placeholders only (`config/examples/.env.example`).
 
 ## Acceptance
-- [x] Login required for any private data (`test_private_endpoints_require_authentication`).
-- [x] One task can be created, edited, listed and persisted after restart in isolated local test (`test_task_lifecycle_and_database_restart_persistence`).
-- [x] Script viewer reads only approved directories; cannot write, execute scripts or escape via symlink/path traversal (`test_path_traversal_and_absolute_paths_denied`, `test_symlink_escape_denied`, `test_checksum_tampering_detected`).
-- [x] Docker images configured to run unprivileged (`10001:10001` and `101:101`) with no Docker socket and no broad host mounts (container build/runtime marked `NOT_TESTED` in isolated VM without Docker daemon).
-- [x] Unit and integration tests have real logs (`14 passed` in `pytest`, `2 passed` in `vitest`, `ruff` and `mypy` clean, `vite build` succeeded).
-- [x] README explains how to run in local staging, with no NAS execution assumed.
+- [x] Login required for any private data; failed logins commit `auth.login_failed` to `audit_logs` before raising `401` (`test_private_endpoints_require_authentication`, `test_login_failure_records_audit_and_persists_after_401`).
+- [x] One task can be created, edited, listed and persisted after restart in isolated local test (`test_task_lifecycle_and_database_restart_persistence`, `test_backup_interruption_never_publishes_incomplete_file_and_restore_roundtrip`, `test_migration_atomicity_rolls_back_partial_ddl_on_failure`).
+- [x] Script viewer reads only approved directories using kernel `dir_fd` (`openat`) with `O_NOFOLLOW | O_DIRECTORY`; cannot write, execute scripts or escape via symlink/hardlink/path traversal (`test_path_traversal_and_absolute_paths_denied`, `test_leaf_and_intermediate_directory_symlink_escape_denied`, `test_hardlink_and_special_files_denied`, `test_checksum_tampering_detected`).
+- [x] Docker images configured to run unprivileged (`10001:10001` and `101:101`) with no Docker socket and no broad host mounts (container runtime execution remains `NOT_TESTED` / `BLOCKED` in isolated VM without Docker daemon).
+- [x] Unit and integration tests have real logs (`19 passed` in `pytest`, `2 passed` in `vitest`, `ruff` and `mypy` clean, `vite build` succeeded, `npm audit` `0 vulnerabilities`).
+- [x] README and runbook explain how to run in local staging, with no NAS execution assumed.
 
 ## Delivery
 One feature branch (`feature/phase-01-foundation`), PR with description/tests/risks/rollback. Owner reviews before merge, then separate deployment authorization.

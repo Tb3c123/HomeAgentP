@@ -35,19 +35,24 @@ def initialize_core_state(settings: Settings) -> None:
                 "env": settings.env,
                 "db_path": str(settings.db_path),
                 "migrations_applied": applied,
-                "secret_key": settings.secret_key,  # Will be automatically redacted by filter
+                "secret_key": settings.secret_key,  # Automatically redacted by filter
             }
         },
     )
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
-    """Create and configure the HomeAgentP Core FastAPI application."""
+    """Create and configure the HomeAgentP Core FastAPI application.
+
+    Note (F04): initialize_core_state() is invoked exclusively inside the FastAPI
+    lifespan context manager so startup initialization executes exactly once.
+    """
     resolved_settings = settings if settings is not None else Settings()  # type: ignore[call-arg]
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         initialize_core_state(resolved_settings)
+        app.state.init_count = getattr(app.state, "init_count", 0) + 1
         yield
 
     app = FastAPI(
@@ -60,9 +65,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = resolved_settings
-
-    # Ensure state is initialized immediately even if TestClient is used without context manager
-    initialize_core_state(resolved_settings)
+    app.state.init_count = 0
 
     app.include_router(health_router)
     app.include_router(auth_router)

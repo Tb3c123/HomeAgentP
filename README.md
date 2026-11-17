@@ -56,18 +56,17 @@ npm run build
 
 ### 3. Run Local Development Servers (Localhost Only)
 
-1. Copy `config/examples/.env.example` to `.env` and set a random `HOMEAGENTP_SECRET_KEY` and strong `HOMEAGENTP_ADMIN_PASSWORD`.
-2. Start Core on `127.0.0.1:8311`:
+1. Copy `config/examples/.env.example` to `.env` at the repository root and set a random `HOMEAGENTP_SECRET_KEY` and strong `HOMEAGENTP_ADMIN_PASSWORD`.
+2. Start Core on `127.0.0.1:8311` (from repository root):
    ```bash
-   cd apps/core
-   .venv/bin/uvicorn homeagentp_core.main:create_app --factory --host 127.0.0.1 --port 8311
+   apps/core/.venv/bin/uvicorn homeagentp_core.main:create_app --factory --host 127.0.0.1 --port 8311
    ```
 3. Start Web on `127.0.0.1:8310`:
    ```bash
    cd apps/web
    npm run dev
    ```
-4. See [docs/operations/01-runbook-and-rollback.md](docs/operations/01-runbook-and-rollback.md) for containerized local staging (`deploy/docker-compose.dev.yml`), SQLite backup/restore verification, and rollback procedures.
+4. See [docs/operations/01-runbook-and-rollback.md](docs/operations/01-runbook-and-rollback.md) for containerized local staging (`deploy/docker-compose.dev.yml`), atomic SQLite backup/restore verification, TOCTOU threat model notes, and rollback procedures.
 
 ---
 
