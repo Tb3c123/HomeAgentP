@@ -53,6 +53,12 @@ def enqueue_notification(
     now: datetime | None = None,
 ) -> NotificationDeliveryOut:
     """Enqueue a redacted notification with cooldown suppression and bounded overflow handling."""
+    cleaned_dest = destination_masked.strip()
+    if not cleaned_dest or cleaned_dest == "not_configured":
+        raise ValueError(
+            "Cannot enqueue deliverable notification without an authorized destination."
+        )
+
     current = _utc_now(now)
     now_iso = current.isoformat()
     safe_message = redact_text(message.strip())[:MAX_OUTBOX_MESSAGE_CHARS]
@@ -64,19 +70,20 @@ def enqueue_notification(
         started_tx = True
 
     try:
-        # 1. Duplicate suppression: active pending/in_flight OR sent within cooldown window
+        # 1. Duplicate suppression: active pending/in_flight/failed OR sent within cooldown window
         cooldown_cutoff = (current - timedelta(seconds=cooldown_seconds)).isoformat()
         dup_row = conn.execute(
             """
             SELECT id FROM notification_deliveries
             WHERE incident_key = ?
+              AND destination_masked = ?
               AND (
-                  status IN ('pending', 'in_flight')
+                  status IN ('pending', 'in_flight', 'failed')
                   OR (status = 'sent' AND COALESCE(sent_at, created_at) >= ?)
               )
             ORDER BY id DESC LIMIT 1
             """,
-            (incident_key, cooldown_cutoff),
+            (incident_key, cleaned_dest, cooldown_cutoff),
         ).fetchone()
         if dup_row is not None:
             status = "suppressed_cooldown"
@@ -114,26 +121,50 @@ def enqueue_notification(
                 else:
                     status = "suppressed_overflow"
 
-        cur = conn.execute(
-            """
-            INSERT INTO notification_deliveries (
-                incident_key, source_domain, severity, channel, destination_masked,
-                message_redacted, status, claimed_by, lease_expires_at,
-                attempt_count, next_attempt_at, last_error_redacted, created_at, sent_at
+        try:
+            cur = conn.execute(
+                """
+                INSERT INTO notification_deliveries (
+                    incident_key, source_domain, severity, channel, destination_masked,
+                    message_redacted, status, claimed_by, lease_expires_at,
+                    attempt_count, next_attempt_at, last_error_redacted, created_at, sent_at
+                )
+                VALUES (?, ?, ?, 'telegram', ?, ?, ?, '', NULL, 0, ?, '', ?, NULL)
+                """,
+                (
+                    incident_key,
+                    source_domain,
+                    severity,
+                    cleaned_dest,
+                    safe_message,
+                    status,
+                    now_iso if status == "pending" else None,
+                    now_iso,
+                ),
             )
-            VALUES (?, ?, ?, 'telegram', ?, ?, ?, '', NULL, 0, ?, '', ?, NULL)
-            """,
-            (
-                incident_key,
-                source_domain,
-                severity,
-                destination_masked,
-                safe_message,
-                status,
-                now_iso if status == "pending" else None,
-                now_iso,
-            ),
-        )
+        except sqlite3.IntegrityError:
+            status = "suppressed_cooldown"
+            cur = conn.execute(
+                """
+                INSERT INTO notification_deliveries (
+                    incident_key, source_domain, severity, channel, destination_masked,
+                    message_redacted, status, claimed_by, lease_expires_at,
+                    attempt_count, next_attempt_at, last_error_redacted, created_at, sent_at
+                )
+                VALUES (
+                    ?, ?, ?, 'telegram', ?, ?, 'suppressed_cooldown', '', NULL, 0, NULL, '', ?, NULL
+                )
+                """,
+                (
+                    incident_key,
+                    source_domain,
+                    severity,
+                    cleaned_dest,
+                    safe_message,
+                    now_iso,
+                ),
+            )
+
         row = conn.execute(
             "SELECT * FROM notification_deliveries WHERE id = ?",
             (int(cur.lastrowid or 0),),

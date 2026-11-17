@@ -201,3 +201,65 @@ def test_ha_get_only_collection_persistence_staleness_and_rbac(tmp_path: Path) -
         owner_csrf = login_client(client, TEST_ADMIN_USERNAME, TEST_ADMIN_PASSWORD)
         assert client.post("/api/v1/home-assistant/collect").status_code == 403
         assert owner_csrf
+
+
+def test_ha_failed_collection_and_removed_entity_filtering(tmp_path: Path) -> None:
+    from homeagentp_core.modules.home_assistant.collector import get_ha_overview
+
+    def two_entities_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/":
+            return httpx.Response(200, json={"message": "API running."})
+        if request.url.path == "/api/states/sensor.ups_load":
+            return httpx.Response(200, json={"entity_id": "sensor.ups_load", "state": "20"})
+        if request.url.path == "/api/states/sensor.nas_temp":
+            return httpx.Response(200, json={"entity_id": "sensor.nas_temp", "state": "38"})
+        return httpx.Response(404)
+
+    settings_two = _make_ha_settings(
+        tmp_path,
+        ha_enabled=True,
+        home_assistant_url="http://127.0.0.1:8123",
+        ha_token="ha-secret-token-xyz",  # noqa: S106
+        ha_allowed_hosts=["127.0.0.1"],
+        ha_allowed_entities=["sensor.ups_load", "sensor.nas_temp"],
+    )
+    app = create_app(settings_two)
+    with TestClient(app):
+        pass
+
+    with db_session(settings_two.db_path) as conn:
+        snap1 = collect_ha_telemetry(
+            settings_two, transport=httpx.MockTransport(two_entities_handler)
+        )
+        persist_ha_snapshot(conn, snap1, force=True)
+        ov1 = get_ha_overview(conn, settings_two)
+        assert ov1.status == "online"
+        assert [e.entity_id for e in ov1.entities] == ["sensor.nas_temp", "sensor.ups_load"]
+        assert all(e.status == "online" for e in ov1.entities)
+
+        # Remove sensor.nas_temp from allowlist -> overview immediately filters it out
+        settings_one = _make_ha_settings(
+            tmp_path,
+            ha_enabled=True,
+            home_assistant_url="http://127.0.0.1:8123",
+            ha_token="ha-secret-token-xyz",  # noqa: S106
+            ha_allowed_hosts=["127.0.0.1"],
+            ha_allowed_entities=["sensor.ups_load"],
+        )
+        ov_filtered = get_ha_overview(conn, settings_one)
+        assert [e.entity_id for e in ov_filtered.entities] == ["sensor.ups_load"]
+
+        # Failed collection must NEVER present historical online state as current truth
+        def fail_handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(503, json={"message": "unavailable"})
+
+        snap_fail = collect_ha_telemetry(settings_one, transport=httpx.MockTransport(fail_handler))
+        assert snap_fail["status"] == "unavailable"
+        persist_ha_snapshot(conn, snap_fail, force=True)
+
+        ov_failed = get_ha_overview(conn, settings_one)
+        assert ov_failed.status == "unavailable"
+        assert all(e.status == "unavailable" for e in ov_failed.entities)
+        # Bounded snapshot history preserved
+        snap_count = conn.execute("SELECT COUNT(*) FROM ha_entity_snapshots").fetchone()[0]
+        assert snap_count == 2

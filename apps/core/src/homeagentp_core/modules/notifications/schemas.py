@@ -64,3 +64,4 @@ class NotificationEvaluateOut(BaseModel):
     enqueued: int
     suppressed_cooldown: int
     suppressed_overflow: int
+    skipped_disabled: int = 0

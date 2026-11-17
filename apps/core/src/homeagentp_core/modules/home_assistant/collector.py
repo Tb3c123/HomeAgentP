@@ -159,34 +159,50 @@ def persist_ha_snapshot(
             return 0
 
     entities: list[dict[str, Any]] = snapshot.get("entities", [])
-    for ent in entities:
+    if snapshot.get("status") == "unavailable":
         conn.execute(
-            """
-            INSERT INTO ha_entity_states (
-                entity_id, domain, friendly_name, state, attributes_json,
-                status, last_changed, collected_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(entity_id) DO UPDATE SET
-                domain = excluded.domain,
-                friendly_name = excluded.friendly_name,
-                state = excluded.state,
-                attributes_json = excluded.attributes_json,
-                status = excluded.status,
-                last_changed = excluded.last_changed,
-                collected_at = excluded.collected_at
-            """,
-            (
-                ent["entity_id"],
-                ent["domain"],
-                ent["friendly_name"],
-                ent["state"],
-                json.dumps(ent.get("attributes", {}), ensure_ascii=False),
-                ent["status"],
-                ent.get("last_changed"),
-                ent["collected_at"],
-            ),
+            "UPDATE ha_entity_states SET status = 'unavailable', collected_at = ?",
+            (snapshot["collected_at"],),
         )
+    else:
+        current_ids = [ent["entity_id"] for ent in entities]
+        if current_ids:
+            placeholders = ",".join("?" for _ in current_ids)
+            conn.execute(
+                f"DELETE FROM ha_entity_states WHERE entity_id NOT IN ({placeholders})",  # noqa: S608
+                current_ids,
+            )
+        else:
+            conn.execute("DELETE FROM ha_entity_states")
+
+        for ent in entities:
+            conn.execute(
+                """
+                INSERT INTO ha_entity_states (
+                    entity_id, domain, friendly_name, state, attributes_json,
+                    status, last_changed, collected_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(entity_id) DO UPDATE SET
+                    domain = excluded.domain,
+                    friendly_name = excluded.friendly_name,
+                    state = excluded.state,
+                    attributes_json = excluded.attributes_json,
+                    status = excluded.status,
+                    last_changed = excluded.last_changed,
+                    collected_at = excluded.collected_at
+                """,
+                (
+                    ent["entity_id"],
+                    ent["domain"],
+                    ent["friendly_name"],
+                    ent["state"],
+                    json.dumps(ent.get("attributes", {}), ensure_ascii=False),
+                    ent["status"],
+                    ent.get("last_changed"),
+                    ent["collected_at"],
+                ),
+            )
 
     cur = conn.execute(
         """
@@ -227,8 +243,14 @@ def get_ha_overview(conn: sqlite3.Connection, settings: Settings) -> HaOverviewR
             entities=[],
         )
 
+    try:
+        allowed_set = set(validate_ha_allowlist(settings.ha_allowed_entities))
+    except HaSecurityError:
+        allowed_set = set()
+
     latest = conn.execute("SELECT * FROM ha_entity_snapshots ORDER BY id DESC LIMIT 1").fetchone()
     rows = conn.execute("SELECT * FROM ha_entity_states ORDER BY entity_id ASC").fetchall()
+    filtered_rows = [r for r in rows if str(r["entity_id"]) in allowed_set]
 
     if latest is None:
         return HaOverviewResponse(
@@ -242,7 +264,8 @@ def get_ha_overview(conn: sqlite3.Connection, settings: Settings) -> HaOverviewR
     collected_at = str(latest["collected_at"])
     age = _parse_iso_age_seconds(collected_at)
     is_stale = age is not None and age > settings.ha_snapshot_stale_seconds
-    status = "stale" if is_stale else str(latest["overall_status"])
+    latest_status = str(latest["overall_status"])
+    status = "stale" if is_stale else latest_status
     summary = json.loads(str(latest["summary_json"] or "{}"))
     reason = (
         f"Last Home Assistant snapshot is stale ({int(age or 0)}s old)."
@@ -250,19 +273,29 @@ def get_ha_overview(conn: sqlite3.Connection, settings: Settings) -> HaOverviewR
         else str(summary.get("reason", "Home Assistant telemetry active."))
     )
 
-    entities = [
-        HaEntityStateOut(
-            entity_id=str(r["entity_id"]),
-            domain=str(r["domain"]),
-            friendly_name=str(r["friendly_name"]),
-            state=str(r["state"]),
-            attributes=json.loads(str(r["attributes_json"] or "{}")),
-            status="stale" if is_stale else r["status"],
-            last_changed=r["last_changed"],
-            collected_at=str(r["collected_at"]),
+    entities: list[HaEntityStateOut] = []
+    for r in filtered_rows:
+        raw_st = str(r["status"])
+        if latest_status == "unavailable":
+            entity_status = "unavailable"
+        elif is_stale:
+            entity_status = "stale"
+        elif raw_st in ("online", "stale", "unavailable"):
+            entity_status = raw_st
+        else:
+            entity_status = "unavailable"
+        entities.append(
+            HaEntityStateOut(
+                entity_id=str(r["entity_id"]),
+                domain=str(r["domain"]),
+                friendly_name=str(r["friendly_name"]),
+                state=str(r["state"]),
+                attributes=json.loads(str(r["attributes_json"] or "{}")),
+                status=entity_status,  # type: ignore[arg-type]
+                last_changed=r["last_changed"],
+                collected_at=str(r["collected_at"]),
+            )
         )
-        for r in rows
-    ]
     return HaOverviewResponse(
         status=status,  # type: ignore[arg-type]
         enabled=True,

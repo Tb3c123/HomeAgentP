@@ -171,7 +171,16 @@ def test_outbox_dedup_concurrent_enqueue_claim_lease_overflow_and_retention(
 
 
 def test_notification_preferences_evaluator_rbac_and_csrf(tmp_path: Path) -> None:
-    settings = make_workspace_settings(tmp_path, db_name="notif_api.db")
+    base = make_workspace_settings(tmp_path, db_name="notif_api.db")
+    data = base.model_dump()
+    data.update(
+        {
+            "telegram_enabled": True,
+            "telegram_bot_token": "123456:AAFakeBotTokenForTestsOnly_1234567890",
+            "telegram_allowed_chat_ids": ["-100123456789"],
+        }
+    )
+    settings = type(base)(**data)
     app = create_app(settings)
     with TestClient(app) as client:
         with db_session(settings.db_path) as conn:
@@ -232,3 +241,246 @@ def test_notification_preferences_evaluator_rbac_and_csrf(tmp_path: Path) -> Non
         deliv = client.get("/api/v1/notifications/deliveries")
         assert deliv.status_code == 200
         assert len(deliv.json()) == 2
+
+
+def test_disabled_or_unconfigured_telegram_never_enqueues_pending(tmp_path: Path) -> None:
+    import pytest
+
+    base = make_workspace_settings(tmp_path, db_name="notif_disabled.db")
+    app = create_app(base)
+    with TestClient(app):
+        pass
+
+    with db_session(base.db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO nas_alerts (
+                alert_key, code, severity, category, component, target, message,
+                status, first_seen_at, last_seen_at, occurrences
+            )
+            VALUES (
+                'nas_disk', 'disk_high', 'critical', 'disk', 'disk', '/mnt/disk1', 'Disk full',
+                'active', '2026-11-17T00:00:00Z', '2026-11-17T00:00:00Z', 1
+            )
+            """
+        )
+        # Enable preference in DB, but runtime telegram_enabled=False and no chat_ids
+        conn.execute(
+            """
+            INSERT INTO notification_preferences (
+                id, telegram_enabled, min_severity, notify_on_resolve,
+                cooldown_seconds, rate_limit_count, rate_limit_window_seconds,
+                updated_by, updated_at
+            ) VALUES (1, 1, 'warning', 1, 900, 10, 300, 'admin', '2026-11-17T00:00:00Z')
+            """
+        )
+
+        ev_runtime_off = evaluate_alerts_to_outbox(conn, base)
+        assert ev_runtime_off.enqueued == 0
+        assert ev_runtime_off.skipped_disabled == 1
+        assert list_deliveries(conn, status="pending", limit=20) == []
+
+        # Runtime enabled, but missing destination chat IDs
+        data = base.model_dump()
+        data.update(
+            {
+                "telegram_enabled": True,
+                "telegram_bot_token": "123:ABC",
+                "telegram_allowed_chat_ids": [],
+            }
+        )
+        no_dest_settings = type(base)(**data)
+        ev_no_dest = evaluate_alerts_to_outbox(conn, no_dest_settings)
+        assert ev_no_dest.enqueued == 0
+        assert ev_no_dest.skipped_disabled == 1
+        assert list_deliveries(conn, limit=20) == []
+
+        # Direct enqueue without valid destination fails closed
+        with pytest.raises(ValueError, match="authorized destination"):
+            enqueue_notification(
+                conn,
+                incident_key="nas:nas_disk:t1:triggered",
+                source_domain="nas",
+                severity="critical",
+                destination_masked="not_configured",
+                message="Should fail",
+            )
+
+
+def test_failed_delivery_suppresses_duplicates_and_concurrent_eval_is_atomic(
+    tmp_path: Path,
+) -> None:
+    base = make_workspace_settings(tmp_path, db_name="notif_failed_dedup.db")
+    data = base.model_dump()
+    data.update(
+        {
+            "telegram_enabled": True,
+            "telegram_bot_token": "123456:AAFakeBotTokenForTestsOnly_1234567890",
+            "telegram_allowed_chat_ids": ["-100123456789"],
+        }
+    )
+    settings = type(base)(**data)
+    app = create_app(settings)
+    with TestClient(app):
+        pass
+
+    base_now = datetime(2026, 11, 17, 13, 0, 0, tzinfo=UTC)
+    with db_session(settings.db_path) as conn:
+        d1 = enqueue_notification(
+            conn,
+            incident_key="nas:disk1:t1:triggered",
+            source_domain="nas",
+            severity="warning",
+            destination_masked="***6789",
+            message="Disk warning",
+            cooldown_seconds=60,
+            now=base_now,
+        )
+        claimed = claim_next_delivery(conn, worker_id="w1", lease_seconds=30, now=base_now)
+        assert claimed is not None and claimed.id == d1.id
+        assert fail_delivery(
+            conn,
+            d1.id,
+            worker_id="w1",
+            error_message="HTTP 503 temporary",
+            retry_delay_seconds=30,
+            max_attempts=3,
+            now=base_now,
+        )
+
+        # Retryable 'failed' delivery must suppress new duplicate even after cooldown window
+        dup = enqueue_notification(
+            conn,
+            incident_key="nas:disk1:t1:triggered",
+            source_domain="nas",
+            severity="warning",
+            destination_masked="***6789",
+            message="Disk warning again",
+            cooldown_seconds=60,
+            now=base_now + timedelta(seconds=120),
+        )
+        assert dup.status == "suppressed_cooldown"
+
+        # Suppressed audit record must NOT be claimable as sendable delivery
+        claimed_after = claim_next_delivery(
+            conn,
+            worker_id="w2",
+            lease_seconds=30,
+            now=base_now + timedelta(seconds=120),
+        )
+        assert claimed_after is not None and claimed_after.id == d1.id
+        assert complete_delivery(
+            conn, d1.id, worker_id="w2", now=base_now + timedelta(seconds=120)
+        )
+        assert (
+            claim_next_delivery(
+                conn,
+                worker_id="w2",
+                lease_seconds=30,
+                now=base_now + timedelta(seconds=121),
+            )
+            is None
+        )
+
+    # Concurrent duplicate enqueue for same incident+destination -> exactly 1 pending
+    def _race(_: int) -> str:
+        with db_session(settings.db_path) as c:
+            res = enqueue_notification(
+                c,
+                incident_key="media:sonarr_down:t1:triggered",
+                source_domain="media",
+                severity="critical",
+                destination_masked="***6789",
+                message="Sonarr down",
+                cooldown_seconds=900,
+                now=base_now,
+            )
+            return res.status
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        race_statuses = list(pool.map(_race, range(8)))
+    assert race_statuses.count("pending") == 1
+    assert race_statuses.count("suppressed_cooldown") == 7
+
+
+def test_triggered_resolved_lifecycle_and_restart_idempotency(tmp_path: Path) -> None:
+    base = make_workspace_settings(tmp_path, db_name="notif_lifecycle.db")
+    data = base.model_dump()
+    data.update(
+        {
+            "telegram_enabled": True,
+            "telegram_bot_token": "123456:AAFakeBotTokenForTestsOnly_1234567890",
+            "telegram_allowed_chat_ids": ["-100123456789"],
+        }
+    )
+    settings = type(base)(**data)
+    app = create_app(settings)
+    with TestClient(app):
+        pass
+
+    t0 = datetime(2026, 11, 17, 14, 0, 0, tzinfo=UTC)
+    with db_session(settings.db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO notification_preferences (
+                id, telegram_enabled, min_severity, notify_on_resolve,
+                cooldown_seconds, rate_limit_count, rate_limit_window_seconds,
+                updated_by, updated_at
+            ) VALUES (1, 1, 'warning', 1, 900, 10, 300, 'admin', '2026-11-17T00:00:00Z')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO nas_alerts (
+                alert_key, code, severity, category, component, target, message,
+                status, first_seen_at, last_seen_at, occurrences
+            )
+            VALUES (
+                'nas_ram', 'ram_high', 'warning', 'ram', 'ram', 'host', 'RAM high',
+                'active', '2026-11-17T14:00:00Z', '2026-11-17T14:00:00Z', 1
+            )
+            """
+        )
+        ev1 = evaluate_alerts_to_outbox(conn, settings, now=t0)
+        assert ev1.enqueued == 1
+
+        # Resolve alert -> emits exactly one resolved notification
+        conn.execute(
+            "UPDATE nas_alerts SET status = 'resolved', resolved_at = ? "
+            "WHERE alert_key = 'nas_ram'",
+            ((t0 + timedelta(minutes=1)).isoformat(),),
+        )
+        ev2 = evaluate_alerts_to_outbox(conn, settings, now=t0 + timedelta(minutes=1))
+        assert ev2.enqueued == 1
+
+    # Simulate restart / new connection and repeated polling while resolved -> 0 new notifications
+    with db_session(settings.db_path) as conn:
+        ev3 = evaluate_alerts_to_outbox(conn, settings, now=t0 + timedelta(minutes=2))
+        ev4 = evaluate_alerts_to_outbox(conn, settings, now=t0 + timedelta(minutes=30))
+        assert ev3.enqueued == 0
+        assert ev4.enqueued == 0
+
+        # Re-trigger same alert -> new transition sequence t2:triggered
+        conn.execute(
+            "UPDATE nas_alerts SET status = 'active', resolved_at = NULL "
+            "WHERE alert_key = 'nas_ram'"
+        )
+        ev5 = evaluate_alerts_to_outbox(conn, settings, now=t0 + timedelta(minutes=31))
+        assert ev5.enqueued == 1
+
+        # Disable notify_on_resolve and resolve -> 0 resolved notifications
+        conn.execute("UPDATE notification_preferences SET notify_on_resolve = 0 WHERE id = 1")
+        conn.execute(
+            "UPDATE nas_alerts SET status = 'resolved', resolved_at = ? "
+            "WHERE alert_key = 'nas_ram'",
+            ((t0 + timedelta(minutes=32)).isoformat(),),
+        )
+        ev6 = evaluate_alerts_to_outbox(conn, settings, now=t0 + timedelta(minutes=32))
+        assert ev6.enqueued == 0
+
+        all_pending = list_deliveries(conn, status="pending", limit=20)
+        keys = [d.incident_key for d in all_pending]
+        assert "nas:nas_ram:t1:triggered" in keys
+        assert "nas:nas_ram:t1:resolved" in keys
+        assert "nas:nas_ram:t2:triggered" in keys
+        assert "nas:nas_ram:t2:resolved" not in keys
