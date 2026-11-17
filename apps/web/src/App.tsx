@@ -1,28 +1,9 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { apiClient, ApiError } from "./api/client";
-import type {
-  AuditLogItem,
-  AuthUser,
-  DomainCategory,
-  MediaAlertItem,
-  MediaHistoryItem,
-  MediaOverviewResponse,
-  NasAlertItem,
-  NasHistoryItem,
-  NasStatusResponse,
-  OverviewResponse,
-  ProjectItem,
-  RedactedSettings,
-  ReportDetailItem,
-  ReportSummaryItem,
-  ScriptDetailItem,
-  ScriptManifestItem,
-  TaskItem,
-  TaskPriority,
-  TaskStatus,
-} from "./api/types";
+import React, { useState } from "react";
+import type { DomainCategory, TaskPriority, TaskStatus } from "./api/types";
 import { MediaDashboard } from "./components/media/MediaDashboard";
 import { StatusBadge } from "./components/StatusBadge";
+import { useAuthSession } from "./hooks/useAuthSession";
+import { useDashboardData } from "./hooks/useDashboardData";
 import { formatBytes, formatPercent } from "./utils/format";
 
 export type NavSection =
@@ -36,37 +17,57 @@ export type NavSection =
   | "settings";
 
 export const App: React.FC = () => {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [authChecking, setAuthChecking] = useState<boolean>(true);
   const [activeSection, setActiveSection] = useState<NavSection>("overview");
   const [errorMsg, setErrorMsg] = useState<string>("");
 
-  // Login form state
-  const [usernameInput, setUsernameInput] = useState<string>("admin");
-  const [passwordInput, setPasswordInput] = useState<string>("");
-  const [loginBusy, setLoginBusy] = useState<boolean>(false);
+  const {
+    user,
+    setUser,
+    authChecking,
+    usernameInput,
+    setUsernameInput,
+    passwordInput,
+    setPasswordInput,
+    loginBusy,
+    handleLogin,
+    handleLogout: logoutSession,
+  } = useAuthSession({ setErrorMsg });
 
-  // Dashboard state
-  const [overview, setOverview] = useState<OverviewResponse | null>(null);
-  const [nasStatus, setNasStatus] = useState<NasStatusResponse | null>(null);
-  const [nasHistory, setNasHistory] = useState<NasHistoryItem[]>([]);
-  const [nasAlerts, setNasAlerts] = useState<NasAlertItem[]>([]);
-  const [includeResolvedAlerts, setIncludeResolvedAlerts] = useState<boolean>(false);
-  const [nasCollectBusy, setNasCollectBusy] = useState<boolean>(false);
-  const [mediaOverview, setMediaOverview] = useState<MediaOverviewResponse | null>(null);
-  const [mediaHistory, setMediaHistory] = useState<MediaHistoryItem[]>([]);
-  const [mediaAlerts, setMediaAlerts] = useState<MediaAlertItem[]>([]);
-  const [includeResolvedMediaAlerts, setIncludeResolvedMediaAlerts] =
-    useState<boolean>(false);
-  const [mediaCollectBusy, setMediaCollectBusy] = useState<boolean>(false);
-  const [projects, setProjects] = useState<ProjectItem[]>([]);
-  const [tasks, setTasks] = useState<TaskItem[]>([]);
-  const [scripts, setScripts] = useState<ScriptManifestItem[]>([]);
-  const [selectedScript, setSelectedScript] = useState<ScriptDetailItem | null>(null);
-  const [reports, setReports] = useState<ReportSummaryItem[]>([]);
-  const [selectedReport, setSelectedReport] = useState<ReportDetailItem | null>(null);
-  const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
-  const [settingsData, setSettingsData] = useState<RedactedSettings | null>(null);
+  const {
+    overview,
+    nasStatus,
+    nasHistory,
+    nasAlerts,
+    includeResolvedAlerts,
+    nasCollectBusy,
+    mediaOverview,
+    mediaHistory,
+    mediaAlerts,
+    includeResolvedMediaAlerts,
+    mediaCollectBusy,
+    projects,
+    tasks,
+    scripts,
+    selectedScript,
+    reports,
+    selectedReport,
+    auditLogs,
+    settingsData,
+    resetDashboardData,
+    handleCollectNasSnapshot,
+    handleToggleIncludeResolved,
+    handleCollectMediaSnapshot,
+    handleToggleIncludeResolvedMedia,
+    createTask,
+    handleTaskStatusChange,
+    handleSelectScript,
+    handleSelectReport,
+  } = useDashboardData({ user, setUser, setErrorMsg });
+
+  const handleLogout = async () => {
+    await logoutSession();
+    resetDashboardData();
+  };
 
   // New task form state
   const [newTaskTitle, setNewTaskTitle] = useState<string>("");
@@ -76,233 +77,21 @@ export const App: React.FC = () => {
   const [newTaskBranch, setNewTaskBranch] = useState<string>("");
   const [newTaskBrief, setNewTaskBrief] = useState<string>("");
 
-  const loadWorkspaceData = useCallback(async () => {
-    try {
-      setErrorMsg("");
-      const [
-        ov,
-        nasSt,
-        nasHist,
-        nasAl,
-        medOv,
-        medHist,
-        medAl,
-        projs,
-        tsks,
-        scrs,
-        reps,
-        audits,
-        cfg,
-      ] = await Promise.all([
-        apiClient.getOverview(),
-        apiClient.getNasStatus(),
-        apiClient.listNasHistory(15),
-        apiClient.listNasAlerts(includeResolvedAlerts),
-        apiClient.getMediaOverview().catch(() => null),
-        apiClient.listMediaHistory(15).catch(() => []),
-        apiClient.listMediaAlerts(includeResolvedMediaAlerts).catch(() => []),
-        apiClient.listProjects(),
-        apiClient.listTasks(),
-        apiClient.listScripts(),
-        apiClient.listReports(),
-        apiClient.listAuditLogs(),
-        apiClient.getSettings(),
-      ]);
-      setOverview(ov);
-      setNasStatus(nasSt);
-      setNasHistory(nasHist);
-      setNasAlerts(nasAl);
-      setMediaOverview(medOv);
-      setMediaHistory(medHist);
-      setMediaAlerts(medAl);
-      setProjects(projs);
-      setTasks(tsks);
-      setScripts(scrs);
-      setReports(reps);
-      setAuditLogs(audits);
-      setSettingsData(cfg);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        setUser(null);
-      } else if (err instanceof Error) {
-        setErrorMsg(err.message);
-      }
-    }
-  }, [includeResolvedAlerts, includeResolvedMediaAlerts]);
-
-  useEffect(() => {
-    let mounted = true;
-    apiClient
-      .getMe()
-      .then((me) => {
-        if (!mounted) return;
-        setUser(me);
-        setAuthChecking(false);
-      })
-      .catch(() => {
-        if (!mounted) return;
-        setUser(null);
-        setAuthChecking(false);
-      });
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (user) {
-      void loadWorkspaceData();
-    }
-  }, [user, loadWorkspaceData]);
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoginBusy(true);
-    setErrorMsg("");
-    try {
-      const authenticated = await apiClient.login(usernameInput, passwordInput);
-      setUser(authenticated);
-      setPasswordInput("");
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Login failed.");
-    } finally {
-      setLoginBusy(false);
-    }
-  };
-
-  const handleLogout = async () => {
-    if (!user) return;
-    try {
-      await apiClient.logout(user.csrf_token);
-    } finally {
-      setUser(null);
-      setOverview(null);
-      setNasStatus(null);
-      setMediaOverview(null);
-    }
-  };
-
-  const handleCollectNasSnapshot = async () => {
-    if (!user) return;
-    setNasCollectBusy(true);
-    setErrorMsg("");
-    try {
-      const latest = await apiClient.collectNasSnapshot(user.csrf_token);
-      setNasStatus(latest);
-      const [hist, al, ov] = await Promise.all([
-        apiClient.listNasHistory(15),
-        apiClient.listNasAlerts(includeResolvedAlerts),
-        apiClient.getOverview(),
-      ]);
-      setNasHistory(hist);
-      setNasAlerts(al);
-      setOverview(ov);
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Failed to collect NAS snapshot.");
-    } finally {
-      setNasCollectBusy(false);
-    }
-  };
-
-  const handleToggleIncludeResolved = async (checked: boolean) => {
-    setIncludeResolvedAlerts(checked);
-    try {
-      const al = await apiClient.listNasAlerts(checked);
-      setNasAlerts(al);
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Failed to load alerts.");
-    }
-  };
-
-  const handleCollectMediaSnapshot = async () => {
-    if (!user) return;
-    setMediaCollectBusy(true);
-    setErrorMsg("");
-    try {
-      const latest = await apiClient.collectMediaSnapshot(user.csrf_token);
-      setMediaOverview(latest);
-      const [hist, al, ov] = await Promise.all([
-        apiClient.listMediaHistory(15),
-        apiClient.listMediaAlerts(includeResolvedMediaAlerts),
-        apiClient.getOverview(),
-      ]);
-      setMediaHistory(hist);
-      setMediaAlerts(al);
-      setOverview(ov);
-    } catch (err) {
-      setErrorMsg(
-        err instanceof Error ? err.message : "Failed to collect Media snapshot.",
-      );
-    } finally {
-      setMediaCollectBusy(false);
-    }
-  };
-
-  const handleToggleIncludeResolvedMedia = async (checked: boolean) => {
-    setIncludeResolvedMediaAlerts(checked);
-    try {
-      const al = await apiClient.listMediaAlerts(checked);
-      setMediaAlerts(al);
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Failed to load media alerts.");
-    }
-  };
-
   const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !newTaskTitle.trim()) return;
-    try {
-      setErrorMsg("");
-      await apiClient.createTask(
-        {
-          title: newTaskTitle.trim(),
-          description: newTaskDesc.trim(),
-          category: newTaskCategory,
-          status: "ready",
-          priority: newTaskPriority,
-          task_brief_md: newTaskBrief.trim(),
-          git_branch: newTaskBranch.trim(),
-        },
-        user.csrf_token,
-      );
+    const created = await createTask({
+      title: newTaskTitle,
+      description: newTaskDesc,
+      category: newTaskCategory,
+      priority: newTaskPriority,
+      task_brief_md: newTaskBrief,
+      git_branch: newTaskBranch,
+    });
+    if (created) {
       setNewTaskTitle("");
       setNewTaskDesc("");
       setNewTaskBranch("");
       setNewTaskBrief("");
-      await loadWorkspaceData();
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Failed to create task.");
-    }
-  };
-
-  const handleTaskStatusChange = async (taskId: number, status: TaskStatus) => {
-    if (!user) return;
-    try {
-      setErrorMsg("");
-      await apiClient.updateTask(taskId, { status }, user.csrf_token);
-      await loadWorkspaceData();
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Failed to update task.");
-    }
-  };
-
-  const handleSelectScript = async (slug: string) => {
-    try {
-      setErrorMsg("");
-      const detail = await apiClient.getScriptDetail(slug);
-      setSelectedScript(detail);
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Failed to load script.");
-    }
-  };
-
-  const handleSelectReport = async (slug: string) => {
-    try {
-      setErrorMsg("");
-      const detail = await apiClient.getReportDetail(slug);
-      setSelectedReport(detail);
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Failed to load report.");
     }
   };
 
