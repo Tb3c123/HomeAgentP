@@ -7,6 +7,7 @@ executes shell commands, reads secrets or touches running containers.
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,8 @@ from typing import Any
 ALLOWED_SERVICE_NAMES = frozenset({"homeagentp-core", "homeagentp-web"})
 FORBIDDEN_MOUNT_SOURCES = ("/var/run/docker.sock", "/mnt/disk1", "/mnt/disk2", "/root", "/")
 DRAFT_IMAGE_MARKERS = (":0.1.0-draft", ":latest")
+ALLOWED_READONLY_BIND_ROOTS = ("/opt/homeagentp/config", "/var/lib/homeagentp/reports")
+IMAGE_DIGEST_RE = re.compile(r"^[^\s@]+@sha256:[a-fA-F0-9]{64}$")
 
 
 def check_compose_document(document: object) -> dict[str, Any]:
@@ -30,6 +33,9 @@ def check_compose_document(document: object) -> dict[str, Any]:
     if not isinstance(services, dict):
         add("compose_services", "FAIL", "Compose services mapping is missing.")
         return {"status": "FAIL", "evidence_scope": "offline_config", "findings": findings}
+
+    for unexpected_name in sorted(set(services) - ALLOWED_SERVICE_NAMES):
+        add("compose.extra_service", "FAIL", "Unexpected service in Compose definition.")
 
     for name in sorted(ALLOWED_SERVICE_NAMES):
         service = services.get(name)
@@ -83,8 +89,22 @@ def check_compose_document(document: object) -> dict[str, Any]:
                        for prefix in ("/var/run/docker.sock", "/host", "/mnt"))
             )
             unsafe_writable_bind = mount_type == "bind" and not read_only
-            add(f"{name}.mount.{i}", "FAIL" if forbidden or unsafe_writable_bind else "PASS",
-                "Mount must not expose host disks/socket or writable host bind.")
+            allowlisted_bind = (
+                mount_type != "bind"
+                or (
+                    src.startswith("/")
+                    and ".." not in src.split("/")
+                    and any(
+                        src == root or src.startswith(root + "/")
+                        for root in ALLOWED_READONLY_BIND_ROOTS
+                    )
+                )
+            )
+            add(
+                f"{name}.mount.{i}",
+                "FAIL" if forbidden or unsafe_writable_bind or not allowlisted_bind else "PASS",
+                "Bind mounts must be read-only and use the explicit safe source allowlist.",
+            )
         if len(mounts) > 50:
             add(f"{name}.mount_limit", "FAIL", "Too many mounts to inspect.")
 
@@ -111,7 +131,7 @@ def check_compose_document(document: object) -> dict[str, Any]:
         if tag is None:
             add(f"{name}.image", "UNKNOWN", "Image provenance requires a pinned release digest.")
         else:
-            safe_digest = isinstance(tag, str) and "@sha256:" in tag and not any(
+            safe_digest = isinstance(tag, str) and IMAGE_DIGEST_RE.fullmatch(tag) is not None and not any(
                 marker in tag for marker in DRAFT_IMAGE_MARKERS
             )
             add(f"{name}.image", "PASS" if safe_digest else "FAIL",
