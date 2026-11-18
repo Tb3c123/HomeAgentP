@@ -52,6 +52,44 @@ def check_compose_document(document: object) -> dict[str, Any]:
             "Privileged mode must be disabled.")
         add(f"{name}.network", "PASS" if service.get("network_mode") != "host" else "FAIL",
             "Host networking must be disabled.")
+        # Fail closed on host namespace sharing, devices, and unreviewed privilege paths.
+        # A non-root UID and read-only rootfs alone cannot make these safe.
+        forbidden_values = {
+            "pid": {"host"},
+            "ipc": {"host"},
+            "uts": {"host"},
+            "cgroup": {"host"},
+            "userns_mode": {"host"},
+            "network_mode": {"host"},
+        }
+        for field, disallowed in forbidden_values.items():
+            value = service.get(field)
+            add(
+                f"{name}.{field}_isolation",
+                "FAIL" if not isinstance(value, (str, type(None)))
+                or (isinstance(value, str) and value.lower() in disallowed) else "PASS",
+                "Host namespace sharing is forbidden.",
+            )
+        for field in ("devices", "device_cgroup_rules", "volumes_from",
+                      "cap_add", "group_add", "security_opt_extra"):
+            value = service.get(field)
+            add(f"{name}.{field}", "PASS" if value in (None, []) else "FAIL",
+                "Additional device, group, volume or privilege grants are forbidden.")
+        for field in ("extends", "build", "credential_spec", "runtime",
+                      "privileged", "cgroup_parent"):
+            if field == "privileged":
+                continue  # Validated above.
+            add(f"{name}.{field}", "PASS" if service.get(field) is None else "FAIL",
+                "Unreviewed Compose execution or privilege controls are forbidden.")
+        add(f"{name}.init_privileges",
+            "PASS" if service.get("userns_mode") is None else "FAIL",
+            "Custom user namespaces require separate review.")
+        add(f"{name}.security_opt_scope",
+            "PASS" if isinstance(service.get("security_opt"), list)
+            and all(str(x).lower() in ("no-new-privileges:true", "no-new-privileges=true")
+                    for x in service["security_opt"]) else "FAIL",
+            "Only no-new-privileges security options are allowed.")
+
         caps = service.get("cap_drop")
         add(f"{name}.cap_drop", "PASS" if isinstance(caps, list) and "ALL" in caps else "FAIL",
             "All Linux capabilities must be dropped.")
