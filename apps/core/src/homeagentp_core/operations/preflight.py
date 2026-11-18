@@ -48,10 +48,17 @@ def check_compose_document(document: object) -> dict[str, Any]:
             "Expected fixed non-root UID:GID.")
         add(f"{name}.readonly", "PASS" if service.get("read_only") is True else "FAIL",
             "Root filesystem must be read-only.")
-        add(f"{name}.privileged", "PASS" if (service.get("privileged") is None or service.get("privileged") is False) else "FAIL",
-            "Privileged mode must be disabled.")
-        add(f"{name}.network", "PASS" if service.get("network_mode") in (None, "bridge") else "FAIL",
-            "Host networking must be disabled.")
+        privileged = service.get("privileged")
+        add(
+            f"{name}.privileged",
+            "PASS" if privileged is None or privileged is False else "FAIL",
+            "Privileged mode must be disabled.",
+        )
+        add(
+            f"{name}.network",
+            "PASS" if service.get("network_mode") in (None, "bridge") else "FAIL",
+            "Host networking must be disabled.",
+        )
         # Fail closed on host namespace sharing, devices, and unreviewed privilege paths.
         # A non-root UID and read-only rootfs alone cannot make these safe.
         isolated_namespace_fields = ("pid", "ipc", "uts", "cgroup", "userns_mode")
