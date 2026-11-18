@@ -4,7 +4,7 @@ HomeAgentP is a personal AI workspace and home NAS operations platform.
 
 ## Architecture: B+ (Antigravity-first, Dashboard-light)
 
-- Official Google Antigravity is used directly by the owner for AI coding, research and generating scripts. HomeAgentP does not wrap or programmatically control consumer Antigravity CLI.
+- The owner actively uses Antigravity CLI with Remote Control on the NAS for AI coding and work. HomeAgentP does not wrap or programmatically control the CLI or consumer account.
 - `homeagentp-web`: NAS dashboard, media/downloads overview, Home Automation overview, task board, read-only script registry, reports/artifacts, and safety settings.
 - `homeagentp-core`: authentication, SQLite metadata & migrations, read-only NAS/media monitoring foundation, task/attempt registry, and strict read-only script/report viewer.
 - Git and files are the handoff mechanism between AI work and HomeAgentP.
@@ -33,12 +33,12 @@ HomeAgentP is a personal AI workspace and home NAS operations platform.
 - **Phase 03 Media & Downloads (`feature/phase-03-media-downloads`, PR #3)**: Implemented and verified with isolated unit/integration tests (`pytest`, `ruff`, `mypy`, `tsc`, `vitest`, `vite build`). Includes uniform `MediaServiceAdapter`, SSRF-guarded read-only HTTP client (`SafeMediaHttpClient`), read-only connectors for Jellyfin, qBittorrent (WebUI v2 with strict client-side GET allowlist), Sonarr v3, Radarr v3, Bazarr, Prowlarr v1, and Seerr v1, consecutive-failure threshold state machine (`media_service_states`), unified alert lifecycle (`media_alerts`), non-overlapping `MediaCollectionScheduler`, and the Media & Downloads Monitoring Hub UI.
 - **Phase 04 Workspace & Artifacts ([PR #4](https://github.com/Tb3c123/HomeAgentP/pull/4))**: **MERGED** into `main` at `28c11aab`. Versioned Task Briefs, Artifacts/Knowledge metadata, Git Provenance and Workspace UI implemented. Final [Core/Web/isolated Docker CI](https://github.com/Tb3c123/HomeAgentP/actions/runs/44094110523) **PASS**; live NAS still **NOT_TESTED**.
 - **Phase 05 Home Assistant & Telegram ([PR #5](https://github.com/Tb3c123/HomeAgentP/pull/5))**: **MERGED** into `main` at `311b8b33`. Read-only HA monitoring and outbound Telegram notification outbox are implemented; critical rate-limit regression fixed. Final [Core/Web/isolated Docker CI](https://github.com/Tb3c123/HomeAgentP/actions/runs/44228050097) **PASS**. Live HA, Telegram and NAS remain **NOT_TESTED**; integrations default disabled until separately authorized.
-- **Phase 06 Operations, Backup & Recovery ([Draft PR #7](https://github.com/Tb3c123/HomeAgentP/pull/7))**: isolated backup/restore hardening, fail-closed scratch-only restore, report-only Compose preflight, regression tests and Docker staging recovery drill implemented on a feature branch. Review and CI evidence are tracked in PR #7; **NOT DEPLOYED**, live NAS/HA/Telegram **NOT_TESTED**.
+- **Phase 06 Operations, Backup & Recovery ([PR #7](https://github.com/Tb3c123/HomeAgentP/pull/7))**: **MERGED** at `52ebb0c2`. SQLite backup/scratch restore, offline Compose preflight and isolated recovery CI passed. **NOT DEPLOYED**; live NAS/HA/Telegram **NOT_TESTED**.
 - **Production Deployment Status**: **`NOT_DEPLOYED`**. Isolated GitHub Actions Docker staging has PASS evidence for Phase 03–04; this does not validate the real NAS. A live-environment preflight, stopped-DB restore drill, port/network and `ttyd` security hardening, approved credential handling and rollback plan remain required before NAS deployment.
 
 ---
 
-## Local Development & Verification Guide (No NAS Access Required)
+## CasaOS installation from checked-out source (no registry push)\n\nThe owner-approved installation path is **build from local Dockerfiles**, not publishing HomeAgentP images to Docker Hub/GHCR. The source-build Compose file is `deploy/docker-compose.casaos.yml`, with a secret-free example `deploy/.env.casaos.example`. Have Antigravity read [CasaOS source-install handoff](docs/operations/07-casaos-source-install.md) before proposing NAS actions. Initial localhost binding and disabled NAS/media/HA/Telegram integrations are deliberate; real NAS install and CasaOS UI integration have not been tested.\n\n## Local Development & Verification Guide (No NAS Access Required)
 
 ### 1. Run `homeagentp-core` Tests, Linter & Typecheck
 
@@ -88,5 +88,5 @@ npm run build
 5. Mỗi Phase bắt buộc có Git branch/PR, evidence thực tế và owner review. Merge code không tự cấp quyền triển khai.
 6. Chỉ sau khi các Phase đã được kiểm thử, review và hoàn tất Pre-Production Checklist, xin **phê duyệt triển khai NAS riêng** với commands, ports, volumes, secrets, backup và rollback.
 
-**Safety notice:** NAS đang có container terminal Antigravity cũ dùng root và Docker Socket RW, với port ttyd rộng. Không dùng container đó để chạy AI-generated deployment scripts cho đến khi security review và hardening được hoàn tất. Không lưu credentials trong repo.
+**Safety notice:** Chủ NAS đang dùng Antigravity CLI + Remote Control và yêu cầu giữ nguyên container. Docker socket RW/root/port ttyd là rủi ro đã ghi nhận, chưa khắc phục. Việc cài CasaOS do chủ NAS trực tiếp phê duyệt và giao Antigravity thực hiện. Không lưu credentials trong repo.
 
