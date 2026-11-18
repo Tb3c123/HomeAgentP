@@ -34,7 +34,7 @@ def check_compose_document(document: object) -> dict[str, Any]:
         add("compose_services", "FAIL", "Compose services mapping is missing.")
         return {"status": "FAIL", "evidence_scope": "offline_config", "findings": findings}
 
-    for unexpected_name in sorted(set(services) - ALLOWED_SERVICE_NAMES):
+    for _unexpected_name in sorted(set(services) - ALLOWED_SERVICE_NAMES):
         add("compose.extra_service", "FAIL", "Unexpected service in Compose definition.")
 
     for name in sorted(ALLOWED_SERVICE_NAMES):
@@ -131,8 +131,10 @@ def check_compose_document(document: object) -> dict[str, Any]:
         if tag is None:
             add(f"{name}.image", "UNKNOWN", "Image provenance requires a pinned release digest.")
         else:
-            safe_digest = isinstance(tag, str) and IMAGE_DIGEST_RE.fullmatch(tag) is not None and not any(
-                marker in tag for marker in DRAFT_IMAGE_MARKERS
+            safe_digest = (
+                isinstance(tag, str)
+                and IMAGE_DIGEST_RE.fullmatch(tag) is not None
+                and not any(marker in tag for marker in DRAFT_IMAGE_MARKERS)
             )
             add(f"{name}.image", "PASS" if safe_digest else "FAIL",
                 "Production image must be verified and digest-pinned; draft tags forbidden.")
