@@ -178,26 +178,20 @@ def restore_sqlite_database(backup_path: Path, target_db_path: Path) -> Path:
         verify_sqlite_integrity(tmp_restore_path)
         _fsync_file_and_parent(tmp_restore_path)
 
-        # Fail closed on races; O_EXCL prevents overwriting a previously created DB.
-        # Reserve target without following symlinks; never delete existing WAL/SHM.
-        reserved = False
+        # Atomic no-clobber publication: hard-link the verified temp DB to a
+        # previously nonexistent name on the same filesystem. Unlike a reserved
+        # zero-byte target followed by os.replace(), no empty DB is exposed.
+        # Fail closed on an existing target, symlink, or unsupported hard links.
+        if any(
+            Path(f"{target_db_path}{suffix}").exists() for suffix in ("-wal", "-shm")
+        ):
+            raise BackupError("Restore target SQLite sidecars appeared during restore.")
         try:
-            target_fd = os.open(
-                str(target_db_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
-            )
-            os.close(target_fd)
-            reserved = True
-            if any(
-                Path(f"{target_db_path}{suffix}").exists() for suffix in ("-wal", "-shm")
-            ):
-                raise BackupError("Restore target SQLite sidecars appeared during restore.")
-            os.replace(tmp_restore_path, target_db_path)
-            reserved = False
-            _fsync_directory(target_db_path.parent)
-        except Exception:
-            if reserved:
-                target_db_path.unlink(missing_ok=True)
-            raise
+            os.link(tmp_restore_path, target_db_path, follow_symlinks=False)
+        except FileExistsError as exc:
+            raise BackupError("Restore target was created concurrently; refusing overwrite.") from exc
+        tmp_restore_path.unlink()
+        _fsync_directory(target_db_path.parent)
         return target_db_path
     except Exception as exc:
         if dst_conn is not None:
