@@ -26,12 +26,12 @@ Bài thử dùng dữ liệu mẫu. UX/UI, kết nối thiết bị thật, thi�
 | --- | --- | --- |
 | 1.1 — Chốt phạm vi | Duyệt cấu trúc workspace, vai trò và tiêu chí nghiệm thu. | Product Owner đã duyệt. |
 | 1.2 — Kiểm tra NAS và điều kiện sử dụng | Kiểm tra chỉ đọc host và container CasaOS. Xác định gói tài khoản và điều khoản áp dụng. | Đã xác minh `agy` 1.5.11 trong container hiện có. Product Owner xác nhận dùng Google AI Pro và duyệt tái sử dụng bản cài. |
-| 1.3 — Xác minh và cấu hình bản cài CasaOS hiện có | Dùng `agy` có sẵn qua SSH, thiết lập workspace riêng và cấu hình theo phiên. Xác nhận đăng nhập Google và kiểm tra `/usage`. | Có thể mở CLI trong workspace dự án, xác nhận đúng tài khoản và xem quota. |
-| 1.4 — Đăng ký subagent và nghiệm thu | Đăng ký bốn vai trò trong `.agents/agents/` và chạy một yêu cầu mẫu qua Chat Main. | Main chọn đúng một subagent, tổng hợp kết quả, Product Owner theo dõi được qua `/agents` và mở lại Main qua `/resume`. Ghi nhận `/usage` trước và sau bài thử. |
+| 1.3 — Xác minh và cấu hình bản cài CasaOS hiện có | Dùng `agy` có sẵn qua SSH, thiết lập workspace riêng và cấu hình theo phiên. Xác nhận đăng nhập Google và kiểm tra `/usage`. | Đã mở CLI trong workspace dự án, xác minh Google AI Pro và xem được quota. Product Owner đã duyệt kết quả. |
+| 1.4 — Thiết kế điều phối, đăng ký subagent và nghiệm thu | Trao đổi và duyệt thiết kế điều phối trước khi đăng ký bốn vai trò trong `.agents/agents/`. Sau đó chạy một yêu cầu mẫu qua Chat Main. | Main chọn đúng một subagent, tổng hợp kết quả, Product Owner theo dõi được qua `/agents` và mở lại Main qua `/resume`. Ghi nhận `/usage` trước và sau bài thử. |
 
 ## Bản cài CasaOS
 
-Antigravity CLI 1.5.11 đã có trong container `antigravity-cli`. Workspace `/mnt/disk1/Workspace/HomeAgentP` và file `.homeagentp-cli-settings.json` đã được tạo. File cấu hình theo phiên bật `strict` để yêu cầu duyệt từng thao tác công cụ, tắt truy cập ngoài workspace ở cấp CLI và tắt tự động dùng AI credits vượt quota. Tạo Linux user namespace bị từ chối trong container. Giới hạn của CLI không thay thế sandbox hệ điều hành.
+Antigravity CLI 1.5.11 đã có trong container `antigravity-cli`. Workspace `/mnt/disk1/Workspace/HomeAgentP` và file `.homeagentp-cli-settings.json` đã được tạo. File cấu hình theo phiên đặt `agentMode` thành chuỗi rỗng để chọn chế độ mặc định có duyệt sửa file, bật `toolPermission: strict`, tắt truy cập ngoài workspace ở cấp CLI và đặt `useG1Credits: false` để tắt tự động dùng AI credits vượt quota. Tạo Linux user namespace bị từ chối trong container. Giới hạn của CLI không thay thế sandbox hệ điều hành.
 
 Mở trực tiếp `agy` từ terminal SSH trên NAS:
 
@@ -41,7 +41,7 @@ docker exec -it -e SSH_CONNECTION -e SSH_TTY \
   /usr/local/bin/agy --settings .homeagentp-cli-settings.json
 ```
 
-Product Owner xác nhận tài khoản Google AI Pro đang dùng trong phiên. Nếu CLI yêu cầu đăng nhập, dùng luồng OAuth qua SSH chính thức của Google. Sau đó mở `/usage` để kiểm tra quota. Trạng thái đăng nhập và quota thực tế đang chờ xác minh.
+Phiên SSH đã xác minh tài khoản đăng nhập có gói Google AI Pro và `/usage` hiển thị quota theo nhóm model. Nếu CLI yêu cầu đăng nhập lại, dùng luồng OAuth qua SSH chính thức của Google. Bài kiểm tra chỉ mở CLI và xem quota.
 
 ## Điều khoản và quota
 
