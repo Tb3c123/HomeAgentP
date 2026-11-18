@@ -14,6 +14,10 @@ class BackupError(RuntimeError):
     """Raised when an online SQLite backup or restore fails or fails integrity checks."""
 
 
+class PublicationDurabilityError(BackupError):
+    """Target was published but durability of its directory entry is unconfirmed."""
+
+
 def create_connection(db_path: Path) -> sqlite3.Connection:
     """Create a configured SQLite connection with WAL mode and foreign keys enforced."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -101,8 +105,8 @@ def backup_sqlite_database(
     - Writes to a hidden temporary file in the target directory first.
     - Runs PRAGMA integrity_check and PRAGMA foreign_key_check on the backup before publishing.
     - Converts backup journal mode to DELETE so the published backup is self-contained.
-    - Uses os.replace() for atomic publication; any interruption or error unlinks the temp file
-      and leaves any prior backup at target_backup_path untouched.
+    - Failures before os.replace() preserve the prior target. After publication, a
+      directory fsync failure leaves the new target in place, but durability is unknown.
     """
     if not source_db_path.exists():
         raise FileNotFoundError(f"Source database does not exist: {source_db_path}")
@@ -130,7 +134,12 @@ def backup_sqlite_database(
         verify_sqlite_integrity(tmp_backup_path)
         _fsync_file_and_parent(tmp_backup_path)
         os.replace(tmp_backup_path, target_backup_path)
-        _fsync_directory(target_backup_path.parent)
+        try:
+            _fsync_directory(target_backup_path.parent)
+        except OSError as exc:
+            raise PublicationDurabilityError(
+                "Backup was published but directory fsync failed; durability is uncertain."
+            ) from exc
         return target_backup_path
     except Exception as exc:
         if dst_conn is not None:
@@ -193,7 +202,12 @@ def restore_sqlite_database(backup_path: Path, target_db_path: Path) -> Path:
                 "Restore target was created concurrently; refusing overwrite."
             ) from exc
         tmp_restore_path.unlink()
-        _fsync_directory(target_db_path.parent)
+        try:
+            _fsync_directory(target_db_path.parent)
+        except OSError as exc:
+            raise PublicationDurabilityError(
+                "Scratch restore was published but directory fsync failed; durability is uncertain."
+            ) from exc
         return target_db_path
     except Exception as exc:
         if dst_conn is not None:
