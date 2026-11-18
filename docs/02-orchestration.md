@@ -2,6 +2,35 @@
 
 Phase 1, bước 1.4a · Product Owner đã duyệt ngày 18/11/2026.
 
+Product Owner đã chuyển trọng tâm MVP sang hỗ trợ vận hành NAS. Thiết kế nhóm Thiết bị và Lịch trình ở cuối tài liệu ghi lại phạm vi đã thảo luận trước đó. Các nhóm áp dụng cho [phạm vi hiện tại](01-overview.md) nằm ngay bên dưới.
+
+## Các nhóm NAS đã duyệt
+
+| Nhóm | Trách nhiệm |
+| --- | --- |
+| Hệ thống NAS | Theo dõi tài nguyên, trạng thái máy chủ và cảnh báo hệ thống. |
+| Ứng dụng CasaOS | Kiểm tra trạng thái container, cấu hình dịch vụ và lỗi vận hành. |
+| Lưu trữ & Sao lưu | Theo dõi dung lượng, bản sao lưu và khả năng khôi phục. |
+| Media & Jellyfin | Theo dõi quá trình tải, nhập tệp, phụ đề, quét thư viện và phát trên Jellyfin. |
+| Đội Dev | Thiết kế, xây dựng và duy trì phần mềm, tích hợp và công cụ phục vụ NAS. |
+
+Chat Main giao cho Ứng dụng CasaOS khi container Jellyfin không khởi động. Nếu tệp đã tải xong nhưng phim chưa hiện trong thư viện, Chat Main giao cho Media & Jellyfin.
+
+### Cơ cấu Đội Dev
+
+Trưởng nhóm Dev nhận việc từ Chat Main. Các vai trò dưới đây bao phủ toàn bộ vòng đời phát triển. Cách giao việc bên trong Đội Dev và quyền của từng vai trò sẽ được thiết kế riêng.
+
+| Mảng | Vai trò |
+| --- | --- |
+| Sản phẩm và tiến độ | Product Owner là người dùng dự án. Product Manager quản lý phạm vi và tiến độ. Business Analyst làm rõ yêu cầu và tiêu chí nghiệm thu. |
+| Nghiên cứu và thiết kế | UX Researcher, UX Architect và UI/Visual Designer, bao gồm khả năng tiếp cận khi có giao diện. |
+| Kiến trúc và phát triển | Tech Lead/Solution Architect, Frontend Engineer, Backend Engineer, Data/Database Engineer, Integration Engineer và AI/Agent Engineer. |
+| Chất lượng và bảo mật | QA Engineer phụ trách kiểm thử thủ công và tự động. Security & Privacy Engineer rà soát quyền truy cập, bí mật và dữ liệu. |
+| Phát hành và vận hành | DevOps/Platform Engineer, Release Manager và SRE phụ trách triển khai, giám sát, xử lý sự cố và rollback. |
+| Tài liệu và hỗ trợ | Technical Writer duy trì tài liệu, runbook và changelog. Support/Maintainer tiếp nhận lỗi và theo dõi bảo trì sau phát hành. |
+
+Product Owner chọn thiết kế chi tiết Media & Jellyfin trước.
+
 ## Quyết định của Chat Main
 
 Chat Main chọn nhóm theo đầu ra người dùng yêu cầu và chịu trách nhiệm tổng hợp kết quả cuối cùng.
@@ -12,9 +41,9 @@ Chat Main chọn nhóm theo đầu ra người dùng yêu cầu và chịu trác
 | Có một đầu ra rõ thuộc một nhóm | Gọi đúng một subagent rồi tổng hợp kết quả. |
 | Có nhiều đầu ra và thứ tự xử lý rõ | Xử lý đầu ra đầu tiên. Nêu phần còn lại để Product Owner tiếp tục ở lượt sau. |
 | Hai nhóm đều phù hợp và việc chọn nhóm làm thay đổi đầu ra | Hỏi một câu có hai lựa chọn trước khi giao việc. |
-| Yêu cầu tác động lên thiết bị, lịch hoặc chi tiêu thật | Trả về phương án trên dữ liệu mẫu. Việc thực thi nằm ngoài MVP. |
+| Yêu cầu thay đổi dịch vụ hoặc dữ liệu NAS thật | Trả về phương án trên dữ liệu mẫu. Việc thực thi nằm ngoài MVP. |
 
-Cùng một thiết bị có thể liên quan đến nhiều nhóm. Yêu cầu lập lịch bảo dưỡng máy lọc nước thuộc nhóm Bảo trì. Yêu cầu xếp việc thay lõi vào cuối tuần để tránh trùng lịch thuộc nhóm Lịch trình.
+Cùng một dịch vụ có thể liên quan đến nhiều nhóm. Chat Main chọn theo đầu ra người dùng yêu cầu và bằng chứng đang có.
 
 ## Nội dung giao việc và kết quả
 

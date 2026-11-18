@@ -1,24 +1,18 @@
 # Antigravity Home Orchestrator
 
-Phase 1, bước 1.1 · Phạm vi MVP đã duyệt ngày 18/11/2026.
+Phase 1 · Phạm vi MVP và danh sách nhóm cập nhật theo quyết định ở bước 1.4b.
 
 ## Tầm nhìn và người dùng
 
-Antigravity Home Orchestrator là hệ thống điều phối AI hỗ trợ quản lý việc nhà từ NAS thông qua Antigravity CLI. Người dùng đầu tiên là Product Owner, trực tiếp giao việc, kiểm tra kết quả và theo dõi quota. Về lâu dài, hệ thống sẽ tái sử dụng các bài học đã được duyệt để giảm công sức xử lý các tác vụ lặp lại.
+Antigravity Home Orchestrator là hệ thống điều phối AI hỗ trợ vận hành NAS gia đình thông qua Antigravity CLI trên CasaOS. Người dùng đầu tiên là Product Owner, trực tiếp giao việc, kiểm tra kết quả và theo dõi quota. Về lâu dài, hệ thống sẽ tái sử dụng các bài học đã được duyệt để giảm công sức xử lý các tác vụ NAS lặp lại.
 
 ## MVP Milestone 1
 
-Thiết lập Antigravity CLI chính thức, xác thực bằng phương thức được Google hỗ trợ và vận hành trong một workspace dành riêng cho dự án. Workspace có một phiên Chat Main và bốn vai trò subagent được gọi khi cần. Đây là mô hình Project cho MVP. Khả năng duy trì lịch sử riêng cho từng nhóm qua nhiều phiên sẽ được kiểm chứng sau.
+Thiết lập Antigravity CLI chính thức, xác thực bằng phương thức được Google hỗ trợ và vận hành trong một workspace dành riêng cho dự án. Chat Main tiếp nhận yêu cầu về NAS, chọn nhóm xử lý và tổng hợp kết quả. Product Owner đã loại Tài chính & Vật tư khỏi phạm vi MVP và yêu cầu bổ sung Media & Jellyfin cùng Đội Dev.
 
-| Luồng | Trách nhiệm ban đầu |
-| --- | --- |
-| Chat Main — Director | Tiếp nhận yêu cầu, chọn nhóm, giới hạn việc ủy quyền và tổng hợp kết quả. |
-| Thiết bị | Lập danh mục và đề xuất cách kiểm tra trạng thái thiết bị. |
-| Lịch trình | Sắp xếp việc nhà, nhận diện xung đột và đề xuất lịch nhắc. |
-| Tài chính & Vật tư | Tổng hợp chi phí, tồn kho và nhu cầu mua sắm. |
-| Bảo trì | Lập lịch bảo dưỡng và soạn checklist xử lý sự cố. |
+Product Owner đã duyệt [năm nhóm và cơ cấu Đội Dev](02-orchestration.md#các-nhóm-nas-đã-duyệt). Media & Jellyfin là nhóm được thiết kế chi tiết đầu tiên. Quyền của từng vai trò và thứ tự cấu hình trên NAS sẽ được duyệt riêng.
 
-Bài thử dùng dữ liệu mẫu. UX/UI, kết nối thiết bị thật, thiết kế chi tiết từng nhóm và tích hợp cơ chế tự học nằm ngoài phạm vi Milestone 1.
+Bài thử dùng dữ liệu mẫu về NAS. UX/UI, thao tác trực tiếp lên dịch vụ hoặc dữ liệu thật, và tích hợp cơ chế tự học nằm ngoài phạm vi Milestone 1.
 
 ## Lộ trình Phase 1
 
@@ -27,7 +21,7 @@ Bài thử dùng dữ liệu mẫu. UX/UI, kết nối thiết bị thật, thi�
 | 1.1 — Chốt phạm vi | Duyệt cấu trúc workspace, vai trò và tiêu chí nghiệm thu. | Product Owner đã duyệt. |
 | 1.2 — Kiểm tra NAS và điều kiện sử dụng | Kiểm tra chỉ đọc host và container CasaOS. Xác định gói tài khoản và điều khoản áp dụng. | Đã xác minh `agy` 1.5.11 trong container hiện có. Product Owner xác nhận dùng Google AI Pro và duyệt tái sử dụng bản cài. |
 | 1.3 — Xác minh và cấu hình bản cài CasaOS hiện có | Dùng `agy` có sẵn qua SSH, thiết lập workspace riêng và cấu hình theo phiên. Xác nhận đăng nhập Google và kiểm tra `/usage`. | Đã mở CLI trong workspace dự án, xác minh Google AI Pro và xem được quota. Product Owner đã duyệt kết quả. |
-| 1.4 — Thiết kế điều phối, đăng ký subagent và nghiệm thu | Trao đổi và duyệt thiết kế điều phối trước khi đăng ký bốn vai trò trong `.agents/agents/`. Sau đó chạy một yêu cầu mẫu qua Chat Main. | Main chọn đúng một subagent, tổng hợp kết quả, Product Owner theo dõi được qua `/agents` và mở lại Main qua `/resume`. Ghi nhận `/usage` trước và sau bài thử. |
+| 1.4 — Thiết kế điều phối, đăng ký subagent và nghiệm thu | Chốt danh sách trợ lý chuyên về NAS và duyệt thiết kế từng vai trò trước khi đăng ký trong `.agents/agents/`. Sau đó chạy một yêu cầu mẫu về NAS qua Chat Main. | Main chọn đúng một subagent, tổng hợp kết quả, Product Owner theo dõi được qua `/agents` và mở lại Main qua `/resume`. Ghi nhận `/usage` trước và sau bài thử. |
 
 ## Bản cài CasaOS
 
