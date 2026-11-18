@@ -15,7 +15,8 @@ HomeAgentP is a personal AI workspace and home NAS operations platform.
 2. **NAS Guardian (Phase 02)**: metrics, mount checks, service health, read-only alerts.
 3. **Media and downloads (Phase 03)**: Jellyfin, Sonarr, Radarr, Bazarr, Prowlarr, Seerr, qBittorrent.
 4. **Workspace (Phase 04)**: scripts, tasks, artifacts, Git handoff and task briefs.
-5. **Home Assistant, notifications, backup and operations (Phase 05–06)**.
+5. **Home Assistant & Telegram Notifications (Phase 05)**: opt-in read-only HA status and outbound alerts.
+6. **Operations, Backups & Recovery (Phase 06)**: isolated restore drills, non-mutating preflight, staging, operator readiness and explicit deployment gates.
 
 ## Safety
 
@@ -31,7 +32,8 @@ HomeAgentP is a personal AI workspace and home NAS operations platform.
 - **Phase 02 NAS Guardian (`feature/phase-02-nas-guardian`, PR #2)**: Implemented and hardened (`P02-F01`–`P02-F04`) with read-only CPU/RAM/PSI `/proc` parsers, Mount Guardian `/mnt/disk1` & `/mnt/disk2` with unmounted root-filesystem fallback detection, read-only Container Health snapshot adapter without Docker socket, alert lifecycle (`active`/`resolved`), non-overlapping scheduler, and SQLite metric history.
 - **Phase 03 Media & Downloads (`feature/phase-03-media-downloads`, PR #3)**: Implemented and verified with isolated unit/integration tests (`pytest`, `ruff`, `mypy`, `tsc`, `vitest`, `vite build`). Includes uniform `MediaServiceAdapter`, SSRF-guarded read-only HTTP client (`SafeMediaHttpClient`), read-only connectors for Jellyfin, qBittorrent (WebUI v2 with strict client-side GET allowlist), Sonarr v3, Radarr v3, Bazarr, Prowlarr v1, and Seerr v1, consecutive-failure threshold state machine (`media_service_states`), unified alert lifecycle (`media_alerts`), non-overlapping `MediaCollectionScheduler`, and the Media & Downloads Monitoring Hub UI.
 - **Phase 04 Workspace & Artifacts ([PR #4](https://github.com/Tb3c123/HomeAgentP/pull/4))**: **MERGED** into `main` at `28c11aab`. Versioned Task Briefs, Artifacts/Knowledge metadata, Git Provenance and Workspace UI implemented. Final [Core/Web/isolated Docker CI](https://github.com/Tb3c123/HomeAgentP/actions/runs/44094110523) **PASS**; live NAS still **NOT_TESTED**.
-- **Phase 05 Home Assistant & Telegram ([Draft PR #5](https://github.com/Tb3c123/HomeAgentP/pull/5))**: **IN PROGRESS — NOT MERGED**. Existing [Phase 05 plan](docs/plans/05-home-assistant-telegram.md) is on `feature/phase-05-home-assistant-telegram`, not yet on `main`. PR #5 includes implementation and reports isolated [Core/Web/Docker CI PASS](https://github.com/Tb3c123/HomeAgentP/actions/runs/44105853375). Live HA, Telegram and NAS remain **NOT_TESTED**; review is required before merge.
+- **Phase 05 Home Assistant & Telegram ([PR #5](https://github.com/Tb3c123/HomeAgentP/pull/5))**: **MERGED** into `main` at `311b8b33`. Read-only HA monitoring and outbound Telegram notification outbox are implemented; critical rate-limit regression fixed. Final [Core/Web/isolated Docker CI](https://github.com/Tb3c123/HomeAgentP/actions/runs/44228050097) **PASS**. Live HA, Telegram and NAS remain **NOT_TESTED**; integrations default disabled until separately authorized.
+- **Phase 06 Operations, Backup & Recovery ([Draft PR #7](https://github.com/Tb3c123/HomeAgentP/pull/7))**: isolated backup/restore hardening, fail-closed scratch-only restore, report-only Compose preflight, regression tests and Docker staging recovery drill implemented on a feature branch. Review and CI evidence are tracked in PR #7; **NOT DEPLOYED**, live NAS/HA/Telegram **NOT_TESTED**.
 - **Production Deployment Status**: **`NOT_DEPLOYED`**. Isolated GitHub Actions Docker staging has PASS evidence for Phase 03–04; this does not validate the real NAS. A live-environment preflight, stopped-DB restore drill, port/network and `ttyd` security hardening, approved credential handling and rollback plan remain required before NAS deployment.
 
 ---

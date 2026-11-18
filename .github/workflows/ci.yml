@@ -216,6 +216,36 @@ jobs:
           assert upd["cooldown_seconds"] == 600 and upd["telegram_configured"] is False, upd
           print("Phase 05 HA & Notifications disabled-mode staging smoke test passed.")
           PY
+      - name: Phase 06 isolated SQLite backup and scratch restore drill
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose -f deploy/docker-compose.dev.yml exec -T homeagentp-core python3 - <<'PY'
+          import sqlite3
+          from pathlib import Path
+          from homeagentp_core.db.connection import (
+              BackupError, backup_sqlite_database, restore_sqlite_database, verify_sqlite_integrity
+          )
+          source = Path("/data/homeagentp.db")
+          backup = Path("/tmp/phase06-staging-backup.db")
+          scratch = Path("/tmp/phase06-staging-restored.db")
+          assert source.is_file()
+          backup_sqlite_database(source, backup)
+          verify_sqlite_integrity(backup)
+          restore_sqlite_database(backup, scratch)
+          verify_sqlite_integrity(scratch)
+          with sqlite3.connect(scratch) as c:
+              assert c.execute("SELECT value FROM staging_probe LIMIT 1").fetchone()[0] == "persisted"
+              assert c.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] >= 6
+          try:
+              restore_sqlite_database(backup, source)
+          except BackupError:
+              pass
+          else:
+              raise AssertionError("Restore must refuse to overwrite live target")
+          assert source.exists()
+          print("Phase 06 scratch restore and in-place overwrite refusal PASS")
+          PY
       - name: Show staging diagnostics on failure
         if: failure()
         run: |

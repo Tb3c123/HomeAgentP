@@ -14,6 +14,10 @@ class BackupError(RuntimeError):
     """Raised when an online SQLite backup or restore fails or fails integrity checks."""
 
 
+class PublicationDurabilityError(BackupError):
+    """Target was published but durability of its directory entry is unconfirmed."""
+
+
 def create_connection(db_path: Path) -> sqlite3.Connection:
     """Create a configured SQLite connection with WAL mode and foreign keys enforced."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -78,6 +82,17 @@ def _fsync_file_and_parent(file_path: Path) -> None:
             os.close(dir_fd)
 
 
+def _fsync_directory(path: Path) -> None:
+    """Sync published rename metadata (best-effort availability depends on filesystem)."""
+    if not hasattr(os, "O_DIRECTORY"):
+        raise BackupError("Directory fsync is not supported on this platform.")
+    fd = os.open(str(path), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def backup_sqlite_database(
     source_db_path: Path,
     target_backup_path: Path,
@@ -90,8 +105,8 @@ def backup_sqlite_database(
     - Writes to a hidden temporary file in the target directory first.
     - Runs PRAGMA integrity_check and PRAGMA foreign_key_check on the backup before publishing.
     - Converts backup journal mode to DELETE so the published backup is self-contained.
-    - Uses os.replace() for atomic publication; any interruption or error unlinks the temp file
-      and leaves any prior backup at target_backup_path untouched.
+    - Failures before os.replace() preserve the prior target. After publication, a
+      directory fsync failure leaves the new target in place, but durability is unknown.
     """
     if not source_db_path.exists():
         raise FileNotFoundError(f"Source database does not exist: {source_db_path}")
@@ -119,6 +134,12 @@ def backup_sqlite_database(
         verify_sqlite_integrity(tmp_backup_path)
         _fsync_file_and_parent(tmp_backup_path)
         os.replace(tmp_backup_path, target_backup_path)
+        try:
+            _fsync_directory(target_backup_path.parent)
+        except (OSError, BackupError) as exc:
+            raise PublicationDurabilityError(
+                "Backup was published but directory fsync failed; durability is uncertain."
+            ) from exc
         return target_backup_path
     except Exception as exc:
         if dst_conn is not None:
@@ -134,17 +155,26 @@ def backup_sqlite_database(
 
 
 def restore_sqlite_database(backup_path: Path, target_db_path: Path) -> Path:
-    """Verify a backup file and atomically restore it to target_db_path."""
-    if not backup_path.exists():
-        raise FileNotFoundError(f"Backup file does not exist: {backup_path}")
+    """Verify and restore a backup to a NEW database file only.
+
+    Deliberately refuses in-place restore, including existing WAL/SHM sidecars.
+    Replacing a running or stopped production DB is a separate offline
+    operator procedure that requires explicit host-level authorization.
+    """
+    if not backup_path.is_file() or backup_path.is_symlink():
+        raise BackupError("Backup must be an existing regular, non-symlink file.")
+    if target_db_path.is_symlink():
+        raise BackupError("Restore target cannot be a symlink.")
+    if any(Path(f"{target_db_path}{suffix}").exists() for suffix in ("", "-wal", "-shm")):
+        raise BackupError(
+            "Restore target or SQLite sidecars already exist; offline replacement required."
+        )
 
     verify_sqlite_integrity(backup_path)
-
     target_db_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_restore_path = target_db_path.parent / (
         f".{target_db_path.name}.{os.getpid()}.{secrets.token_hex(4)}.restore.tmp"
     )
-
     src_conn = sqlite3.connect(str(backup_path))
     dst_conn: sqlite3.Connection | None = None
     try:
@@ -157,10 +187,27 @@ def restore_sqlite_database(backup_path: Path, target_db_path: Path) -> Path:
         verify_sqlite_integrity(tmp_restore_path)
         _fsync_file_and_parent(tmp_restore_path)
 
-        # Remove stale WAL/SHM sidecars before atomic replacement
-        for suffix in ("-wal", "-shm"):
-            Path(f"{target_db_path}{suffix}").unlink(missing_ok=True)
-        os.replace(tmp_restore_path, target_db_path)
+        # Atomic no-clobber publication: hard-link the verified temp DB to a
+        # previously nonexistent name on the same filesystem. Unlike a reserved
+        # zero-byte target followed by os.replace(), no empty DB is exposed.
+        # Fail closed on an existing target, symlink, or unsupported hard links.
+        if any(
+            Path(f"{target_db_path}{suffix}").exists() for suffix in ("-wal", "-shm")
+        ):
+            raise BackupError("Restore target SQLite sidecars appeared during restore.")
+        try:
+            os.link(tmp_restore_path, target_db_path, follow_symlinks=False)
+        except FileExistsError as exc:
+            raise BackupError(
+                "Restore target was created concurrently; refusing overwrite."
+            ) from exc
+        tmp_restore_path.unlink()
+        try:
+            _fsync_directory(target_db_path.parent)
+        except (OSError, BackupError) as exc:
+            raise PublicationDurabilityError(
+                "Scratch restore was published but directory fsync failed; durability is uncertain."
+            ) from exc
         return target_db_path
     except Exception as exc:
         if dst_conn is not None:

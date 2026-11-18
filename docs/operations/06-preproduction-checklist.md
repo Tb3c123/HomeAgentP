@@ -1,0 +1,36 @@
+# Phase 06 — Pre-production Acceptance & Recovery Evidence Matrix
+
+**Document status:** Template / NOT_TESTED on live NAS. Not an authorization or executable deployment procedure.
+**Baseline:** Phase 05 merged at `311b8b33`.
+
+Use `PASS` only with a dated observation and reproducible command/test evidence; `UNKNOWN` is not `PASS`.
+
+| Gate | Required evidence | Current | Stop condition |
+|---|---|---|---|
+| Host inventory | Live OS, CPU/arch, Docker/Compose, NAS OS, date/time | PARTIAL — owner-provided read-only evidence 2026-11-18; date/time, UID/GID and deployment readiness not verified | Any mismatch with deployment plan |
+| Existing services | Exact port ownership, Docker networks, storage mounts, processes and service health | PARTIAL — docker ps/networks/ss supplied; complete port ownership, service dependencies and safe-change gate remain UNKNOWN | Any change to running Jellyfin/*arr/qBittorrent/AdGuard |
+| Storage boundary | Canonical mount paths, FS types, read-only bind allowlist, UID/GID and free space | PARTIAL — /mnt/disk1 and /mnt/disk2 ext4 mounted, SSD capacity observed; canonical paths, UID/GID and bind review remain UNKNOWN | Root/host disk broad mount or unmounted HDD |
+| Secrets | Runtime secret source, permissions, non-placeholder values, no logs or git leaks | NOT_TESTED | Secrets in repo/PR/CI or public exposure |
+| Network/TLS | Approved ingress, reverse proxy, HTTPS, secure cookies, no unintended egress | NOT_TESTED | Unapproved publicly accessible port |
+| Images | Built from reviewed commit, digest pinning, container user/caps/rootfs, provenance | NOT_TESTED | Unverified draft image tag |
+| SQLite backup | Online backup, integrity/FK checks, backup checksum and protected destination | NOT_TESTED on NAS | Backup overwritten or cannot verify |
+| SQLite restore | Restore **to independent scratch path** and API smoke without touching source DB | NOT_TESTED on NAS | Restore into production by mistake |
+| App health | Core/Web health, reboot/restart, auth/CSRF, NAS/media status honesty | NOT_TESTED on NAS | False healthy or unverified host telemetry |
+| Phase 05 integrations | HA/Telegram disabled-first; live outbound only after opt-in and separate approval | NOT_TESTED live | Accidental message or device command |
+| Rollback | Known-good image, compatible DB snapshot, maintenance window and restore owner | NOT_TESTED | No safe rollback or migration incompatibility |
+| Legacy ttyd | Port 7681 exposure, root/docker.sock implications assessed and remediated by host owner | RISK CONFIRMED — root ttyd/agy, writable Docker socket, 7681 all interfaces; active owner-required CLI, mitigation NOT DONE | Unmitigated high-risk access |
+| Final signoff | Separate explicit owner-approved deployment plan with ports, mounts, secrets and rollback | NOT APPROVED | No written approval |
+
+## Owner-supplied live NAS observations (2026-11-18; read-only)\n\n- Debian GNU/Linux 12 Bookworm, kernel 6.1.0-27-amd64, 4 logical CPUs, RAM 15 GiB (~11 GiB available), NVMe root ext4 233 GiB (~187 GiB available).\n- Docker Engine 29.9.2, Compose v5.6.1; 10 running containers. Jellyfin healthy; media, AdGuard and Portainer running at observation time.\n- /dev/sda1 ext4 mounted at `/mnt/disk1` (~8.9 TiB free); /dev/sdb1 ext4 mounted at `/mnt/disk2` (~9.0 TiB free). These are observation facts, not authorization for bind mounts or filesystem operations.\n- Ports 8310/8311 not listening in observed `ss -lnt`; reservations/network policy not yet approved. SSH and cloudflared systemd services active; browser/remote-control access details intentionally not probed further per owner instruction.\n- Legacy CLI must remain operational: root ttyd/agy, writable Docker socket, 7681 bound to IPv4/IPv6 all interfaces. Documented as retained risk, **not resolved**. Do not modify CLI as part of Phase 06.\n- This evidence is from owner-provided command output; no autonomous NAS connection or mutating command was performed. Missing fields remain UNKNOWN.\n\n## Independent isolated checks already available
+
+- Phase 06 PR #7 commit `3151335`: [Core/Web/isolated Docker CI SUCCESS](https://github.com/Tb3c123/HomeAgentP/actions/runs/44251268732); GitHub Actions not NAS.\n- Phase 05 final PR head `2637633`: [Core/Web/Docker GitHub Actions PASS](https://github.com/Tb3c123/HomeAgentP/actions/runs/44228050097), **isolated without NAS**.
+- The application already contains `backup_sqlite_database`, `restore_sqlite_database`, `verify_sqlite_integrity` in `apps/core/src/homeagentp_core/db/connection.py`.
+- Those facts do **not** establish Phase 06 restore-drill PASS, live backup success, image publish success or NAS deployment readiness.
+
+## Deployment gate
+
+1. Finish Phase 06 design, scoped tests and isolated staging.
+2. Review and merge Phase 06 PR separately.
+3. Obtain a fresh approved, non-secret host inventory.
+4. Prepare a specific deployment proposal with exact proposed mounts/ports/image digests, backup snapshots and rollback verification.
+5. **Only after separate explicit approval** may anyone run commands against the NAS. Never execute automatically from CI or Antigravity.
