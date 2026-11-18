@@ -2,11 +2,19 @@
 
 All notable product-definition and documentation changes are recorded here. Versions below refer to **documentation milestones**, not necessarily Git tags.
 
-## [Phase 2 — Step 2.2 draft] — 2026-11-18
+## [Phase 3 — Step 3.1 draft] — 2026-11-18
 
 ### In progress
-- Bắt đầu đề xuất Information Architecture / Sitemap cho MVP.
-- Chưa phê duyệt cấu trúc thông tin hoặc tạo tài liệu Step 2.2.
+- Bắt đầu đề xuất wireframe tương tác CLI-first với Director.
+- Chưa phê duyệt giao diện hoặc tạo tài liệu chính thức Step 3.1.
+
+## [v0.5.0] — 2026-11-18
+
+### Approved
+- Information Architecture & Sitemap tại [docs/05-information-architecture.md](docs/05-information-architecture.md).
+- Chốt A — Modular Workspace, gồm sáu module logic: Tasks, Workers, Knowledge, Approvals, Resources, Activity.
+- Giữ Centralized Director và Task ID làm tham chiếu chính cho điều phối.
+- **Phase 2 completed:** Main User Flow và Information Architecture đã Approved.
 
 ## [v0.4.0] — 2026-11-18
 
@@ -45,5 +53,5 @@ All notable product-definition and documentation changes are recorded here. Vers
 
 ## Status
 
-- **Latest approved documentation milestone:** v0.4.0 — Phase 2 Step 2.1.
-- **Current work:** Phase 2 Step 2.2 — Information Architecture / Sitemap (draft; pending approval).
+- **Latest approved documentation milestone:** v0.5.0 — Phase 2 Step 2.2.
+- **Current work:** Phase 3 Step 3.1 — Director CLI Interaction / Wireframe (draft; pending approval).
