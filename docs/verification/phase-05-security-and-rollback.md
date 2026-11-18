@@ -7,7 +7,7 @@
 - **Mitigations**:
   - Opt-in only (`HOMEAGENTP_HA_ENABLED=false` by default).
   - Strict `GET` requests only (`/api/` and `/api/states/{entity_id}`), no `POST /api/services/*`.
-  - Host allowlist (`HOMEAGENTP_HA_ALLOWED_HOSTS`), `follow_redirects=False` (3xx rejected), and [`SafeDnsPinningBackend`](file:///home/antigravity/Tb3c123/HomeAgentP/apps/core/src/homeagentp_core/net/safe_http.py) blocking unspecified, multicast, link-local/metadata, and IPv4-mapped IPv6 bypasses.
+  - Host allowlist (`HOMEAGENTP_HA_ALLOWED_HOSTS`), `follow_redirects=False` (3xx rejected), and [`SafeDnsPinningBackend`](../../apps/core/src/homeagentp_core/net/safe_http.py) blocking unspecified, multicast, link-local/metadata, and IPv4-mapped IPv6 bypasses.
   - Strict entity allowlist (`<= 25` entities), response byte cap (`524_288` bytes), and payload minimization before SQLite persistence.
   - Failed collection marks persisted entity states `unavailable` so historical `online` state is never presented as current truth.
 
@@ -20,7 +20,8 @@
   - Single-destination MVP enforced in `Settings` and `TelegramOutboundSender`; `chat_id` masked (`***1234`) in all persisted history and API responses.
   - `redact_text()` scrubs `bot<id>:<token>` and Bot API URLs from all logs, exceptions, and `last_error_redacted`.
   - Short committed SQLite transactions: `evaluate/enqueue`, `claim`, `complete/fail`, and `prune` commit and close before any outbound HTTP request.
-  - Critical alerts bypass per-window non-critical rate limits; non-critical alerts defer with bounded `next_attempt_at` without busy retry loops.
+  - Critical alerts bypass per-window non-critical rate limits; non-critical alerts defer with bounded `next_attempt_at` without incrementing `attempt_count` and without busy retry loops.
+  - **Delivery semantics**: Outbox delivery is **at-least-once** (not exactly-once). If a network timeout or worker crash occurs after Telegram accepts a message but before the post-HTTP SQLite status commit completes, lease recovery or retry can result in a duplicate delivery.
 
 ### Authorization & CSRF
 - `GET` endpoints require authenticated `owner` or `viewer` session.
