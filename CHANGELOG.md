@@ -2,11 +2,17 @@
 
 All notable product-definition and documentation changes are recorded here. Versions below refer to **documentation milestones**, not necessarily Git tags.
 
-## [Phase 3 — Step 3.1 draft] — 2026-11-18
+## [Native-First Redesign decision] — 2026-11-18
 
-### In progress
-- Bắt đầu đề xuất wireframe tương tác CLI-first với Director.
-- Chưa phê duyệt giao diện hoặc tạo tài liệu chính thức Step 3.1.
+### Approved
+- Ưu tiên sử dụng **native Antigravity CLI (`agy`)**; không xây Director CLI hoặc UI riêng trong MVP.
+- **Hoãn custom UI/UX** đến sau khi HomeAgentP được thiết kế, cài đặt, cấu hình và **xác nhận chạy thành công trên Home NAS**, rồi mới đánh giá nhu cầu.
+- Giữ lại các tài liệu Approved v0.1.0–v0.5.0 như quyết định sản phẩm; đánh giá lại các giả định kỹ thuật và luồng session theo năng lực native đã được xác minh.
+- Áp dụng **native-first, configuration-first, custom-code-last**; không triển khai tích hợp trái ToS.
+
+### In progress (not approved)
+- Native Antigravity CLI Capability & Compliance Validation: xác minh CLI, sessions, agents, rules/skills, quota, permission, headless và giới hạn ToS trước khi thiết kế triển khai.
+- Không tạo hoặc phê duyệt tài liệu kỹ thuật từ kết luận kiểm chứng khi chưa có quyết định của Product Owner.
 
 ## [v0.5.0] — 2026-11-18
 
@@ -54,4 +60,4 @@ All notable product-definition and documentation changes are recorded here. Vers
 ## Status
 
 - **Latest approved documentation milestone:** v0.5.0 — Phase 2 Step 2.2.
-- **Current work:** Phase 3 Step 3.1 — Director CLI Interaction / Wireframe (draft; pending approval).
+- **Current work:** Native CLI Capability & Compliance Validation (draft; pending approval). Custom UI/UX deferred until confirmed successful Home NAS operation.
