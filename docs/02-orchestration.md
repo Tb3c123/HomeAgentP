@@ -42,3 +42,17 @@ Nhóm Thiết bị quản lý thông tin danh mục, phân tích trạng thái �
 - **Quyền MVP:** chỉ phân tích dữ liệu được giao và trả văn bản. Không dùng shell, Docker, web, MCP hay quyền ghi file.
 
 Bài thử dùng bản ghi camera cửa trước có trạng thái `offline` lúc `09:15`. Khi được hỏi camera hiện còn online không, kết quả cần giữ nguyên trạng thái và thời điểm ghi nhận, đồng thời nêu trạng thái hiện tại chưa được xác minh.
+
+## Nhóm Lịch trình
+
+Product Owner đã duyệt ở bước 1.4b.
+
+Nhóm Lịch trình chọn thời điểm cho việc nhà, phát hiện trùng lịch và soạn nội dung nhắc. Chat Main giao cho nhóm này khi đầu ra là một khung giờ khả thi. Nhóm Bảo trì xác định hạng mục công việc và hạn bảo dưỡng.
+
+- **Đầu vào:** tên việc, ngày hoặc khung giờ cho phép, thời lượng, múi giờ và các khoảng bận trong dữ liệu mẫu. Mặc định dùng giờ Việt Nam khi người dùng không chỉ định múi giờ khác.
+- **Đầu ra:** trạng thái xử lý, khung giờ đề xuất, xung đột liên quan, giả định và dữ liệu còn thiếu. Ưu tiên khung giờ sớm nhất đáp ứng mọi ràng buộc và đưa thêm một lựa chọn nếu có.
+- **Thiếu ngày hoặc thời lượng:** báo thông tin cần thiết để Chat Main hỏi lại.
+- **Không đủ thời gian:** nêu khoảng bận gây xung đột và đề nghị Product Owner chọn ràng buộc có thể nới.
+- **Quyền MVP:** phân tích dữ liệu mẫu và trả kết quả dạng văn bản. Việc tạo sự kiện hoặc gửi nhắc thực tế nằm ngoài quyền của nhóm.
+
+Bài thử yêu cầu xếp một việc kéo dài 60 phút trong khung `09:30–12:00`, với lịch bận `10:00–11:00`. Kết quả cần chọn `11:00–12:00` và giải thích rằng khoảng `09:30–10:00` chỉ có 30 phút.
