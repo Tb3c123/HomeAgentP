@@ -5,8 +5,8 @@
 
 ## 1. Backup and restore boundary
 
-- `backup_sqlite_database(source, target)` makes a verified online SQLite backup, publishes it via atomic rename and syncs the destination directory after publication.
-- `restore_sqlite_database(backup, target)` **only restores into a newly created target path**. It refuses any existing SQLite DB, `-wal`, `-shm` or target symlink. This is intentional: replacing an existing WAL database during active operation is unsafe.
+- `backup_sqlite_database(source, target)` makes a verified online SQLite backup and publishes it via atomic rename. **Only errors before publication preserve the previous backup.** If the post-publication directory fsync fails, `PublicationDurabilityError` means the new file is already visible, but crash durability is uncertain; do not treat it as a rolled-back backup.
+- Scratch restore has the same post-publication fsync uncertainty: the newly published target must be inspected independently if `PublicationDurabilityError` occurs. Never delete the published target automatically to simulate rollback.\n- `restore_sqlite_database(backup, target)` **only restores into a newly created target path**. It refuses any existing SQLite DB, `-wal`, `-shm` or target symlink. This is intentional: replacing an existing WAL database during active operation is unsafe.
 - Do not delete WAL/SHM sidecars of a live database. Do not run `rm`, `cp` or an in-place restore against an open production SQLite file.
 - These functions do not constitute a complete offline production cutover. A production cutover needs a stopped service, verified recovery snapshot, ownership/permissions, checked backup RPO/RTO, rollback image, and a separate explicit authorization.
 
@@ -47,7 +47,7 @@ The path is an input file prepared and approved outside the checker. **Do not pa
 
 A passing **offline configuration** result is not proof of the state of live containers. Some dev/staging configurations intentionally use local image builds; in that case the image provenance result is `UNKNOWN`, not production-ready.
 
-## 4. Explicit deployment gate (not executed)
+## 4. Read-only NAS discovery (not executed)\n\nThe owner has approved **read-only inventory only**. Use [owner-operated NAS inventory procedure](06-nas-readonly-inventory.md) for a current sanitized snapshot. No deployment, host modifications, live restore, service restart or privilege escalation are approved.\n\n## 5. Explicit deployment gate (not executed)
 
 Record and independently confirm each item in [the readiness matrix](06-preproduction-checklist.md) before proposing deployment:
 
