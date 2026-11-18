@@ -48,26 +48,20 @@ def check_compose_document(document: object) -> dict[str, Any]:
             "Expected fixed non-root UID:GID.")
         add(f"{name}.readonly", "PASS" if service.get("read_only") is True else "FAIL",
             "Root filesystem must be read-only.")
-        add(f"{name}.privileged", "PASS" if service.get("privileged") is not True else "FAIL",
+        add(f"{name}.privileged", "PASS" if service.get("privileged") in (None, False) and service.get("privileged") is not 1 else "FAIL",
             "Privileged mode must be disabled.")
-        add(f"{name}.network", "PASS" if service.get("network_mode") != "host" else "FAIL",
+        add(f"{name}.network", "PASS" if service.get("network_mode") in (None, "bridge") else "FAIL",
             "Host networking must be disabled.")
         # Fail closed on host namespace sharing, devices, and unreviewed privilege paths.
         # A non-root UID and read-only rootfs alone cannot make these safe.
-        forbidden_values = {
-            "pid": {"host"},
-            "ipc": {"host"},
-            "uts": {"host"},
-            "cgroup": {"host"},
-            "userns_mode": {"host"},
-            "network_mode": {"host"},
-        }
-        for field, disallowed in forbidden_values.items():
+        isolated_namespace_fields = ("pid", "ipc", "uts", "cgroup", "userns_mode")
+        for field in isolated_namespace_fields:
             value = service.get(field)
             add(
                 f"{name}.{field}_isolation",
-                "FAIL" if not isinstance(value, (str, type(None)))
-                or (isinstance(value, str) and value.lower() in disallowed) else "PASS",
+                "PASS" if value is None or
+                (isinstance(value, str) and value.lower() == "private")
+                else "FAIL",
                 "Host namespace sharing is forbidden.",
             )
         for field in ("devices", "device_cgroup_rules", "volumes_from",
