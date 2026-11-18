@@ -2,6 +2,20 @@
 
 All notable product-definition and documentation changes are recorded here. Versions below refer to **documentation milestones**, not necessarily Git tags.
 
+## [Home NAS Environment Survey — draft] — 2026-11-18
+
+### In progress
+- Thu thập OS, CPU, RAM, shell, kiến trúc runtime và quyền sử dụng trên Home NAS.
+- Chưa xác minh local compatibility và chưa phê duyệt cài đặt.
+
+## [v0.6.0] — 2026-11-18
+
+### Approved
+- Native CLI Capability Matrix: [docs/06-native-cli-capabilities.md](docs/06-native-cli-capabilities.md).
+- Ưu tiên Native Agents & Swarm, nhưng chỉ sử dụng Swarm khi thích hợp và được phép; tránh tiêu hao quota không cần thiết.
+- Các năng lực có trong tài liệu **chưa** được kiểm chứng trên Home NAS, gói tài khoản hoặc phiên bản CLI thực tế.
+- Hoãn Hermes integration và custom UI/UX cho đến khi đủ điều kiện; UI/UX chỉ đánh giá lại sau khi hệ thống chạy thành công trên Home NAS.
+
 ## [Native-First Redesign decision] — 2026-11-18
 
 ### Approved
@@ -10,9 +24,9 @@ All notable product-definition and documentation changes are recorded here. Vers
 - Giữ lại các tài liệu Approved v0.1.0–v0.5.0 như quyết định sản phẩm; đánh giá lại các giả định kỹ thuật và luồng session theo năng lực native đã được xác minh.
 - Áp dụng **native-first, configuration-first, custom-code-last**; không triển khai tích hợp trái ToS.
 
-### In progress (not approved)
-- Native Antigravity CLI Capability & Compliance Validation: xác minh CLI, sessions, agents, rules/skills, quota, permission, headless và giới hạn ToS trước khi thiết kế triển khai.
-- Không tạo hoặc phê duyệt tài liệu kỹ thuật từ kết luận kiểm chứng khi chưa có quyết định của Product Owner.
+### Validation boundaries
+- Quyết định Native-First vẫn có hiệu lực; kiểm tra môi trường Home NAS là bước tiếp theo.
+- Không xem Capability Matrix ở mức tài liệu như bằng chứng chạy thật hoặc cho phép tích hợp ngoài ToS.
 
 ## [v0.5.0] — 2026-11-18
 
@@ -59,5 +73,5 @@ All notable product-definition and documentation changes are recorded here. Vers
 
 ## Status
 
-- **Latest approved documentation milestone:** v0.5.0 — Phase 2 Step 2.2.
-- **Current work:** Native CLI Capability & Compliance Validation (draft; pending approval). Custom UI/UX deferred until confirmed successful Home NAS operation.
+- **Latest approved documentation milestone:** v0.6.0 — Native CLI Capability Matrix.
+- **Current work:** Home NAS Environment Survey (draft; pending approval). Custom UI/UX deferred until confirmed successful Home NAS operation.
