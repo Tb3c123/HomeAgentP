@@ -27,3 +27,18 @@ Cùng một thiết bị có thể liên quan đến nhiều nhóm. Yêu cầu l
 - Tối đa một lần gọi subagent mỗi lượt. Nếu lần gọi thất bại, Chat Main báo phần chưa hoàn tất và chờ lượt tiếp theo.
 - Subagent phân tích dữ liệu mẫu được gửi trong yêu cầu và trả kết quả dạng văn bản. Quyền shell, Docker, web, MCP và ghi file được xét khi thiết kế từng vai trò.
 - Trong bài nghiệm thu, ghi nhận `/usage` trước và sau bài thử. Giới hạn gọi subagent là quy tắc điều phối. Quota thực tế lấy từ CLI.
+
+## Nhóm Thiết bị
+
+Product Owner đã duyệt ở bước 1.4b.
+
+Nhóm Thiết bị quản lý thông tin danh mục, phân tích trạng thái đã ghi nhận và đề xuất kiểm tra thủ công khi cần. Chat Main giao cho nhóm này khi yêu cầu cần thông tin về thiết bị. Nếu đầu ra là lịch bảo dưỡng, Chat Main giao cho nhóm Bảo trì.
+
+- **Đầu vào:** dữ liệu mẫu Chat Main gửi trong nội dung giao việc. Mỗi bản ghi có thể gồm mã, tên, vị trí, trạng thái, thời điểm và nguồn ghi nhận.
+- **Đầu ra:** trạng thái xử lý, kết quả dạng văn bản, giả định và dữ liệu còn thiếu. Với mỗi trạng thái thiết bị, giữ nguyên nguồn và thời điểm nếu có. Nếu hỏi về hiện tại, nêu rõ mức độ xác minh của bản ghi gần nhất.
+- **Dữ liệu thiếu:** đánh dấu trường chưa rõ và đề xuất cách kiểm tra thủ công.
+- **Thiết bị trùng tên:** phân biệt bằng mã hoặc vị trí. Nếu vẫn chưa xác định được, gửi các lựa chọn để Chat Main hỏi lại.
+- **Bản ghi mâu thuẫn:** trình bày các bản ghi liên quan kèm thời điểm và nguồn, rồi nêu điều cần xác minh.
+- **Quyền MVP:** chỉ phân tích dữ liệu được giao và trả văn bản. Không dùng shell, Docker, web, MCP hay quyền ghi file.
+
+Bài thử dùng bản ghi camera cửa trước có trạng thái `offline` lúc `09:15`. Khi được hỏi camera hiện còn online không, kết quả cần giữ nguyên trạng thái và thời điểm ghi nhận, đồng thời nêu trạng thái hiện tại chưa được xác minh.
