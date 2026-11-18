@@ -161,7 +161,7 @@ def run_notification_outbox_cycle(
     for _ in range(max(1, max_batch)):
         # Tx 2: Short committed claim transaction
         with db_session(db_path) as conn:
-            delivery, was_rate_limited = _claim_step(
+            delivery, deferred_count = _claim_step(
                 conn,
                 settings=settings,
                 worker_id=worker_id,
@@ -169,12 +169,10 @@ def run_notification_outbox_cycle(
                 rate_limit_window_seconds=prefs.rate_limit_window_seconds,
                 current=current,
             )
+            rate_limited += deferred_count
 
         if delivery is None:
             break
-        if was_rate_limited:
-            rate_limited += 1
-            continue
 
         # Outbound HTTP I/O happens with NO open SQLite connection or write transaction
         result = active_sender.send_message(
@@ -282,7 +280,7 @@ def process_notification_outbox_cycle(
     rate_limited = 0
 
     for _ in range(max(1, max_batch)):
-        delivery, deferred_now = _claim_step(
+        delivery, deferred_count = _claim_step(
             conn,
             settings=settings,
             worker_id=worker_id,
@@ -291,7 +289,7 @@ def process_notification_outbox_cycle(
             current=current,
         )
         conn.commit()
-        rate_limited += deferred_now
+        rate_limited += deferred_count
 
         if delivery is None:
             break
