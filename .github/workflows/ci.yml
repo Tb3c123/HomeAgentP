@@ -254,3 +254,63 @@ jobs:
       - name: Stop isolated staging containers (preserve volumes)
         if: always()
         run: docker compose -f deploy/docker-compose.dev.yml down || true
+
+
+  casaos-source-build:
+    name: CasaOS source-build (isolated, no NAS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate non-persistent staging credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p deploy/runtime/reports
+          echo "HOMEAGENTP_SECRET_KEY=$(openssl rand -hex 40)" >> "$GITHUB_ENV"
+          echo "HOMEAGENTP_ADMIN_PASSWORD=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          echo "HOMEAGENTP_ADMIN_USERNAME=admin" >> "$GITHUB_ENV"
+          echo "HOMEAGENTP_BIND_IP=127.0.0.1" >> "$GITHUB_ENV"
+          echo "HOMEAGENTP_PORT=18312" >> "$GITHUB_ENV"
+      - name: Validate checked-out CasaOS source Compose
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose --project-name homeagentp-source-ci -f deploy/docker-compose.casaos.yml config --quiet
+          test -f apps/core/Dockerfile && test -f apps/web/Dockerfile
+      - name: Build from local Dockerfiles and start (NO registry push)
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose --project-name homeagentp-source-ci -f deploy/docker-compose.casaos.yml build
+          docker compose --project-name homeagentp-source-ci -f deploy/docker-compose.casaos.yml up -d --no-build --wait --wait-timeout 150
+      - name: Smoke test Web/Core and container privilege boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS http://127.0.0.1:18312/api/v1/health | python3 -c 'import json,sys; assert json.load(sys.stdin)["status"] == "ok"'
+          core_id=$(docker compose --project-name homeagentp-source-ci -f deploy/docker-compose.casaos.yml ps -q homeagentp-core)
+          web_id=$(docker compose --project-name homeagentp-source-ci -f deploy/docker-compose.casaos.yml ps -q homeagentp-web)
+          test -n "$core_id" && test -n "$web_id"
+          test "$(docker inspect "$core_id" --format '{{.Config.User}}')" = "10001:10001"
+          test "$(docker inspect "$web_id" --format '{{.Config.User}}')" = "101:101"
+          for cid in "$core_id" "$web_id"; do
+            test "$(docker inspect "$cid" --format '{{.HostConfig.ReadonlyRootfs}}')" = true
+            test "$(docker inspect "$cid" --format '{{.HostConfig.Privileged}}')" = false
+            docker inspect "$cid" --format '{{json .HostConfig.CapDrop}}' | grep -q ALL
+            docker inspect "$cid" --format '{{json .HostConfig.SecurityOpt}}' | grep -q no-new-privileges
+            if docker inspect "$cid" --format '{{json .Mounts}}' | grep -Eq 'docker.sock|/mnt/disk1|/mnt/disk2'; then
+              echo "Unauthorized host mount" >&2
+              exit 1
+            fi
+          done
+          test "$(docker inspect "$core_id" --format '{{json .HostConfig.PortBindings}}')" = '{}' || test "$(docker inspect "$core_id" --format '{{json .HostConfig.PortBindings}}')" = 'null'
+          test "$(docker inspect "$web_id" --format '{{(index (index .HostConfig.PortBindings "8310/tcp") 0).HostIp}}')" = "127.0.0.1"
+      - name: Diagnostics on CI failure only
+        if: failure()
+        run: |
+          docker compose --project-name homeagentp-source-ci -f deploy/docker-compose.casaos.yml ps || true
+          docker compose --project-name homeagentp-source-ci -f deploy/docker-compose.casaos.yml logs --tail 40 || true
+      - name: Remove isolated CI containers, preserve volumes
+        if: always()
+        run: docker compose --project-name homeagentp-source-ci -f deploy/docker-compose.casaos.yml down || true
