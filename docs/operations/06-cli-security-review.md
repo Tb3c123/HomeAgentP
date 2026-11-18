@@ -32,6 +32,31 @@ command -v ufw || true
 
 **Never post:** `docker inspect` with no explicit format, `docker compose config` with injected environment, process commandlines (`ps aux`), tokens, `.env`, ttyd authentication flags, Cloudflare Tunnel credentials, user session cookies, real public URLs or IPs. Redact host names and public endpoints.
 
+## 2026-11-18 owner read-only follow-up observations
+
+Observed from owner-supplied terminal outputs, not from a direct NAS connection:
+
+- `systemctl is-active ssh nginx caddy cloudflared tailscaled`: `active`, `inactive`, `inactive`, `active`, `inactive` in that order. A running `cloudflared` service does not prove the tunnel's ingress rule or authentication policy.
+- `ss -lnt`: TCP 7681 listening on `0.0.0.0` and `[::]`; SSH 22 also on both families; Portainer 9443 on both; TCP 80 listening. No TCP 8310/8311 observed. Open sockets alone do not prove Internet reachability.
+- `antigravity-cli` Docker restart policy is `unless-stopped`; no Docker healthcheck configured.
+- `command -v nft` and `command -v ufw` produced no path. This cannot establish whether kernel firewall, Docker chains, router rules or Cloudflare Access policies exist.
+- `HomeAgentP CI` for commit `cbcfcf9` on PR #7 (run `44237669887`) reports completed/success, **isolated** CI only; deployment remains blocked.
+
+### Next read-only gate (owner-operated)
+
+Only disclose sanitized status, not routes, secrets or command-line contents:
+
+```bash
+# Service unit metadata only; never show cloudflared environment or full service commandline.
+systemctl show cloudflared -p ActiveState -p SubState -p FragmentPath
+# Whether tunnel process owns listening sockets; no secret command-line flags.
+ss -lnt
+# Cloudflared container check, if any (no environment).
+docker ps --format '{{.Names}}'
+```
+
+For Internet reachability and authentication, use a trusted existing external client and manually verify the established approved URL requires authentication; do not post real public hostnames or URLs. A local tunnel service being active is not evidence that port 7681 is protected.
+
 ## Threat model and staged mitigation proposal (NOT EXECUTED)
 
 1. **Access boundary first:** inventory LAN and remote paths and check authenticated access to ttyd/port 7681 from existing clients; document whether any domain/tunnel points to 7681. Prefer an authenticated reverse proxy / Cloudflare Access with a tested break-glass SSH route before limiting ingress.
