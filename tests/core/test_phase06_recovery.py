@@ -102,3 +102,25 @@ def test_failed_backup_preserves_previous_valid_backup(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         backup_sqlite_database(tmp_path / "missing.db", backup)
     assert backup.read_bytes() == previous
+
+
+def test_backup_failed_atomic_publish_keeps_previous_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An interrupted publication must not replace an existing valid backup."""
+    import homeagentp_core.db.connection as recovery
+
+    source = tmp_path / "source.db"
+    backup = tmp_path / "backup.db"
+    _init_db(source)
+    backup_sqlite_database(source, backup)
+    original = backup.read_bytes()
+
+    def reject_publish(_src: Path, _dst: Path) -> None:
+        raise OSError("simulated publish error")
+
+    monkeypatch.setattr(recovery.os, "replace", reject_publish)
+    with pytest.raises(BackupError, match="aborted cleanly"):
+        backup_sqlite_database(source, backup)
+    assert backup.read_bytes() == original
+    assert not list(tmp_path.glob(".backup.db.*.tmp"))
