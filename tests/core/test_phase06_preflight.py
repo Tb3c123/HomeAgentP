@@ -81,3 +81,36 @@ def test_preflight_rejects_arbitrary_ro_host_data_and_hidden_extra_services() ->
     failing = {x["check"] for x in result["findings"] if x["status"] == "FAIL"}
     assert "homeagentp-core.mount.0" in failing
     assert "compose.extra_service" in failing
+
+
+def test_preflight_rejects_host_namespace_devices_and_extra_privilege_grants() -> None:
+    dangerous = {
+        "pid": "host",
+        "ipc": "host",
+        "uts": "host",
+        "cgroup": "host",
+        "userns_mode": "host",
+        "devices": ["/dev/sda:/dev/sda"],
+        "device_cgroup_rules": ["a *:* rwm"],
+        "volumes_from": ["other"],
+        "cap_add": ["SYS_ADMIN"],
+        "group_add": ["0"],
+        "extends": {"service": "untrusted"},
+        "build": {"context": "."},
+        "credential_spec": {"file": "creds"},
+        "runtime": "nvidia",
+        "cgroup_parent": "root",
+        "security_opt": ["no-new-privileges:true", "seccomp=unconfined"],
+    }
+    for field, value in dangerous.items():
+        doc = _document()
+        services = doc["services"]
+        assert isinstance(services, dict)
+        core = services["homeagentp-core"]
+        assert isinstance(core, dict)
+        core[field] = value
+        result = check_compose_document(doc)
+        assert result["status"] == "FAIL", field
+        assert any(item["status"] == "FAIL" and
+                   item["check"].startswith("homeagentp-core.")
+                   for item in result["findings"]), field
