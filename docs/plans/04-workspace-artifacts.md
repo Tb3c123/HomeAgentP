@@ -1,6 +1,6 @@
 # Phase 04 — Workspace, Task Briefs, Artifacts & Git Handoff
 
-**Status:** GATE A + GATE B IMPLEMENTED (Final Integration Fixes Applied; Pending Human Review)  
+**Status:** IMPLEMENTED AND MERGED — PR #4 merged into `main` (`28c11aab1a65c24db22946d12663cbdae0b602c0`); isolated Core/Web/Docker CI PASS; live NAS `NOT_TESTED`  
 **Branch:** `feature/phase-04-workspace-artifacts` (based on merged Phase 03 `main`, `6f13fee7`)  
 **Architecture:** HomeAgentP B+ (Antigravity-first, Dashboard-light)
 
@@ -65,7 +65,7 @@ Build compact Task Brief / Artifacts / Git Handoff UI using feature components a
 - **Gate B: F04 + F05** — Git links/UI/integration; tests and isolated staging.
 - **Final review** — security/API/rollback and merge-readiness checks, human approval.
 
-**Current decision:** Gate 0, Gate A (`P04-F02`, `P04-F03`), Gate B (`P04-F04`, `P04-F05`), and final integration fixes are implemented and verified. Draft PR #4 remains open for human review; merge and live NAS deployment remain prohibited without explicit approval.
+**Current decision (2026-11-18):** Gate 0, Gate A (`P04-F02`, `P04-F03`), Gate B (`P04-F04`, `P04-F05`), and final integration fixes completed. [PR #4](https://github.com/Tb3c123/HomeAgentP/pull/4) was merged into `main` as `28c11aab1a65c24db22946d12663cbdae0b602c0`. [Final PR-head CI](https://github.com/Tb3c123/HomeAgentP/actions/runs/44094110523) passed Core, Web, and isolated Docker staging. Live NAS and production deployment remain `NOT_TESTED` / `NOT_DEPLOYED`; merging code is not deployment approval.
 
 ## 7. Verification & Final Integration Status
 
