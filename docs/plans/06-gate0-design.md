@@ -1,6 +1,6 @@
 # Phase 06 — Gate 0 Architecture, Threat Model & Verification Design
 
-**Status:** DESIGN / REVIEW REQUIRED — not an implementation acceptance or NAS deployment authorization
+**Status:** GATE 0 DESIGN RECORDED; ISOLATED GATE A/B/C CHANGES IMPLEMENTED FOR REVIEW. No live NAS deployment approval.
 **Current `main` baseline:** Phase 05 merged in [PR #5](https://github.com/Tb3c123/HomeAgentP/pull/5) as `311b8b33`.
 
 ## 1. Repository inventory: facts versus assumptions
