@@ -189,7 +189,9 @@ def restore_sqlite_database(backup_path: Path, target_db_path: Path) -> Path:
         try:
             os.link(tmp_restore_path, target_db_path, follow_symlinks=False)
         except FileExistsError as exc:
-            raise BackupError("Restore target was created concurrently; refusing overwrite.") from exc
+            raise BackupError(
+                "Restore target was created concurrently; refusing overwrite."
+            ) from exc
         tmp_restore_path.unlink()
         _fsync_directory(target_db_path.parent)
         return target_db_path
