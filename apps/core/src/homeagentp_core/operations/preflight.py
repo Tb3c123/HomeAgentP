@@ -97,7 +97,11 @@ def check_compose_document(document: object) -> dict[str, Any]:
                     ip = str(port.get("host_ip", ""))
                 else:
                     # Plain strings must use explicit IPv4 localhost prefix.
-                    ip = "127.0.0.1" if isinstance(port, str) and port.startswith("127.0.0.1:") else ""
+                    ip = (
+                        "127.0.0.1"
+                        if isinstance(port, str) and port.startswith("127.0.0.1:")
+                        else ""
+                    )
                 add(f"{name}.port.{i}", "PASS" if ip in ("127.0.0.1", "::1") else "FAIL",
                     "Published ports must bind loopback only.")
             if len(ports) > 20:
