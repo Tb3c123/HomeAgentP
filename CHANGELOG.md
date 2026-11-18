@@ -2,11 +2,19 @@
 
 All notable product-definition and documentation changes are recorded here. Versions below refer to **documentation milestones**, not necessarily Git tags.
 
-## [Phase 2 — Step 2.1 draft] — 2026-11-18
+## [Phase 2 — Step 2.2 draft] — 2026-11-18
 
 ### In progress
-- Bắt đầu đề xuất User Flow tổng quan cho MVP đã duyệt.
-- Chưa phê duyệt sơ đồ luồng, chưa tạo tài liệu chính thức Step 2.1.
+- Bắt đầu đề xuất Information Architecture / Sitemap cho MVP.
+- Chưa phê duyệt cấu trúc thông tin hoặc tạo tài liệu Step 2.2.
+
+## [v0.4.0] — 2026-11-18
+
+### Approved
+- Main User Flow tại [docs/04-main-user-flow.md](docs/04-main-user-flow.md).
+- Chọn **Centralized Director**: Administrator giao việc qua Director; Worker xử lý theo hợp đồng giao việc.
+- Chốt sáu Task states và bảy alternative flows; phê duyệt và quota là các điều kiện kiểm soát.
+- Chuyển giao giữa session chỉ qua phương thức hợp lệ; không giả định cross-session invocation tự động.
 
 ## [v0.3.0] — 2026-11-18
 
@@ -37,5 +45,5 @@ All notable product-definition and documentation changes are recorded here. Vers
 
 ## Status
 
-- **Latest approved documentation milestone:** v0.3.0 — Phase 1 Step 1.3.
-- **Current work:** Phase 2 Step 2.1 — User Flow (draft; pending approval).
+- **Latest approved documentation milestone:** v0.4.0 — Phase 2 Step 2.1.
+- **Current work:** Phase 2 Step 2.2 — Information Architecture / Sitemap (draft; pending approval).
