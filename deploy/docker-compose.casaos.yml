@@ -1,0 +1,86 @@
+# HomeAgentP CasaOS / Debian 12: build locally FROM SOURCE, not registry images.
+# Deploy ONLY after owner-run checks. Compose is run from checked-out repository.
+# CasaOS UI YAML importer may not preserve relative build contexts: use Docker Compose
+# locally for initial build and inspect/attach from CasaOS only after verifying support.
+name: homeagentp
+
+services:
+  homeagentp-core:
+    build:
+      context: ../apps/core
+      dockerfile: Dockerfile
+    image: homeagentp-core:local
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid,nodev
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      HOMEAGENTP_ENV: staging
+      HOMEAGENTP_DB_PATH: /data/homeagentp.db
+      HOMEAGENTP_SECRET_KEY: ${HOMEAGENTP_SECRET_KEY:?Set a random secret in deploy/.env}
+      HOMEAGENTP_ADMIN_USERNAME: ${HOMEAGENTP_ADMIN_USERNAME:-admin}
+      HOMEAGENTP_ADMIN_PASSWORD: ${HOMEAGENTP_ADMIN_PASSWORD:?Set a strong admin password in deploy/.env}
+      HOMEAGENTP_COOKIE_SECURE: ${HOMEAGENTP_COOKIE_SECURE:-false}
+      HOMEAGENTP_SCRIPTS_DIR: /config/scripts
+      HOMEAGENTP_REPORTS_DIR: /config/reports
+      HOMEAGENTP_SEED_EXAMPLES: "false"
+      HOMEAGENTP_NAS_ADAPTER_ENABLED: "false"
+      HOMEAGENTP_NAS_SCHEDULER_ENABLED: "false"
+      HOMEAGENTP_MEDIA_ADAPTER_ENABLED: "false"
+      HOMEAGENTP_MEDIA_SCHEDULER_ENABLED: "false"
+      HOMEAGENTP_HA_ENABLED: "false"
+      HOMEAGENTP_HA_SCHEDULER_ENABLED: "false"
+      HOMEAGENTP_TELEGRAM_ENABLED: "false"
+      HOMEAGENTP_NOTIFICATION_SCHEDULER_ENABLED: "false"
+    volumes:
+      - homeagentp_core_data:/data:rw
+      - ../config/examples/scripts:/config/scripts:ro
+      - ./runtime/reports:/config/reports:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 256M
+    restart: unless-stopped
+    networks:
+      - homeagentp_internal
+
+  homeagentp-web:
+    build:
+      context: ../apps/web
+      dockerfile: Dockerfile
+    image: homeagentp-web:local
+    user: "101:101"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+      - /var/cache/nginx:size=16m,noexec,nosuid,nodev
+      - /var/run:size=8m,noexec,nosuid,nodev
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - "${HOMEAGENTP_BIND_IP:-127.0.0.1}:${HOMEAGENTP_PORT:-8310}:8310"
+    depends_on:
+      homeagentp-core:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 128M
+    restart: unless-stopped
+    networks:
+      - homeagentp_internal
+
+volumes:
+  homeagentp_core_data:
+
+networks:
+  homeagentp_internal:
+    driver: bridge
