@@ -9,6 +9,8 @@ from pathlib import Path
 
 import httpx
 from fastapi.testclient import TestClient
+from tests.core.workspace.conftest import make_workspace_settings
+
 from homeagentp_core.config import Settings
 from homeagentp_core.db.connection import db_session
 from homeagentp_core.main import create_app
@@ -21,9 +23,7 @@ from homeagentp_core.modules.notifications.scheduler import (
 )
 from homeagentp_core.modules.notifications.telegram import TelegramOutboundSender
 
-from tests.core.workspace.conftest import make_workspace_settings
-
-FAKE_TOKEN = "123456:AAFakeBotTokenForRegressionTests_123456"
+FAKE_TOKEN = "123456:AAFakeBotTokenForRegressionTests_123456"  # noqa: S105
 
 
 def _setup_outbox_db(tmp_path: Path, db_name: str, *, rate_limit_count: int = 1) -> Settings:
