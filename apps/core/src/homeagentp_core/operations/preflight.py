@@ -129,7 +129,7 @@ def main() -> int:
             raise ValueError("Invalid Compose JSON input size or type.")
         document: object = json.loads(path.read_text(encoding="utf-8"))
         result = check_compose_document(document)
-    except (OSError, ValueError, json.JSONDecodeError):
+    except (OSError, ValueError):
         result = {"status": "FAIL", "evidence_scope": "offline_config",
                   "findings": [{"check": "input", "status": "FAIL",
                                 "detail": "Unable to validate Compose JSON input."}]}
