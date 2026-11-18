@@ -124,3 +124,49 @@ def test_backup_failed_atomic_publish_keeps_previous_snapshot(
         backup_sqlite_database(source, backup)
     assert backup.read_bytes() == original
     assert not list(tmp_path.glob(".backup.db.*.tmp"))
+
+
+def test_post_publication_backup_sync_failure_does_not_claim_rollback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import homeagentp_core.db.connection as recovery
+
+    source = tmp_path / "source.db"
+    target = tmp_path / "backup.db"
+    _init_db(source)
+    backup_sqlite_database(source, target)
+    original = target.read_bytes()
+    with create_connection(source) as conn:
+        conn.execute("INSERT INTO records(value) VALUES ('second')")
+    def fail_directory_sync(_path: Path) -> None:
+        raise OSError("injected directory sync failure")
+
+    monkeypatch.setattr(recovery, "_fsync_directory", fail_directory_sync)
+    with pytest.raises(recovery.PublicationDurabilityError, match="published"):
+        backup_sqlite_database(source, target)
+    assert target.exists()
+    assert target.read_bytes() != original
+    verify_sqlite_integrity(target)
+    with sqlite3.connect(target) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM records").fetchone()[0] == 2
+
+
+def test_post_publication_restore_sync_failure_preserves_scratch_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import homeagentp_core.db.connection as recovery
+
+    source = tmp_path / "source.db"
+    backup = tmp_path / "backup.db"
+    restored = tmp_path / "restored.db"
+    _init_db(source)
+    backup_sqlite_database(source, backup)
+    def fail_directory_sync(_path: Path) -> None:
+        raise OSError("injected directory sync failure")
+
+    monkeypatch.setattr(recovery, "_fsync_directory", fail_directory_sync)
+    with pytest.raises(recovery.PublicationDurabilityError, match="published"):
+        restore_sqlite_database(backup, restored)
+    assert restored.exists()
+    verify_sqlite_integrity(restored)
+    assert not list(tmp_path.glob(".restored.db.*.restore.tmp"))
