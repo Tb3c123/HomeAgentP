@@ -47,7 +47,7 @@ def test_preflight_unsafe_privileges_mounts_exposure_and_draft_fail_closed() -> 
         {"type": "bind", "source": "/var/run/docker.sock",
          "target": "/var/run/docker.sock", "read_only": False}
     ]
-    core["ports"] = [{"host_ip": "0.0.0.0", "published": 8310}]  # type: ignore[index]
+    core["ports"] = [{"host_ip": "0.0.0.0"  # noqa: S104, "published": 8310}]  # type: ignore[index]
     core["image"] = "ghcr.io/example/homeagentp:0.1.0-draft"  # type: ignore[index]
     result = check_compose_document(doc)
     assert result["status"] == "FAIL"
