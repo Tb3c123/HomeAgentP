@@ -136,7 +136,7 @@ def backup_sqlite_database(
         os.replace(tmp_backup_path, target_backup_path)
         try:
             _fsync_directory(target_backup_path.parent)
-        except OSError as exc:
+        except (OSError, BackupError) as exc:
             raise PublicationDurabilityError(
                 "Backup was published but directory fsync failed; durability is uncertain."
             ) from exc
@@ -204,7 +204,7 @@ def restore_sqlite_database(backup_path: Path, target_db_path: Path) -> Path:
         tmp_restore_path.unlink()
         try:
             _fsync_directory(target_db_path.parent)
-        except OSError as exc:
+        except (OSError, BackupError) as exc:
             raise PublicationDurabilityError(
                 "Scratch restore was published but directory fsync failed; durability is uncertain."
             ) from exc
