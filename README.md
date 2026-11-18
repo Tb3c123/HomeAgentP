@@ -6,9 +6,9 @@
 - **Automation:** Level B — Controlled Automation / Human-in-the-Loop
 - **AI memory:** Long-term memory và feedback learning có kiểm soát, tham khảo Hermes Agent
 - **Constraints:** Antigravity CLI (`agy`) phải tuân thủ ToS, giới hạn quota và cơ chế tích hợp được phép
-- **Current focus:** Native-First Redesign — xác minh khả năng và ToS của Antigravity CLI trước khi thiết kế triển khai.
-- **Latest approved step:** Phase 2, Step 2.2 — Information Architecture & Sitemap (v0.5.0)
-- **Current step:** Native CLI Capability & Compliance Validation (**draft; chưa phê duyệt kết luận kỹ thuật**).
+- **Current focus:** Native-First Redesign — khảo sát môi trường Home NAS trước khi thiết kế triển khai.
+- **Latest approved step:** Native CLI Capability Matrix (v0.6.0; documentation baseline only)
+- **Current step:** Home NAS Environment Survey (**draft; chưa khảo sát/xác minh tương thích thực tế**).
 
 ## Approved documents
 
@@ -19,6 +19,7 @@
 | 1.3 | [Core Features & MVP Scope](docs/03-mvp-scope.md) | Approved, v0.3.0 |
 | 2.1 | [Main User Flow](docs/04-main-user-flow.md) | Approved, v0.4.0 |
 | 2.2 | [Information Architecture & Sitemap](docs/05-information-architecture.md) | Approved, v0.5.0 |
+| Native validation | [Native CLI Capability Matrix](docs/06-native-cli-capabilities.md) | Approved, v0.6.0 — local testing pending |
 
 ## Native-First Redesign — Approved 2026-11-18
 
@@ -27,7 +28,7 @@
 - **Các tài liệu v0.1.0–v0.5.0:** giữ nguyên quyết định sản phẩm, nhưng giả định triển khai đa phiên, handoff và IA kỹ thuật phải được kiểm chứng lại. Không coi tài liệu cũ là bằng chứng hỗ trợ tính năng native.
 - **Home NAS:** máy triển khai đích; tính tương thích phần cứng/OS và phương thức cài đặt chưa được xác minh.
 - **UI/UX riêng:** **DEFERRED**. Chỉ xem xét lại **sau khi** HomeAgentP được thiết kế, cài đặt, cấu hình và xác nhận chạy thành công trên Home NAS; PO quyết định có cần UI riêng hay không.
-- **Hiện tại:** chỉ xác minh khả năng `agy`, ToS và ranh giới tích hợp; không tự chuyển sang cài đặt hay triển khai.
+- **Hiện tại:** khảo sát Home NAS (OS/CPU/RAM, shell, runtime và quyền truy cập); chưa cài đặt hoặc triển khai, chưa kết luận tương thích.
 
 See [CHANGELOG.md](CHANGELOG.md) for version history.
 
