@@ -61,7 +61,10 @@ def test_restore_never_overwrites_existing_target_or_sidecars(tmp_path: Path) ->
         with pytest.raises(BackupError, match="already exist"):
             restore_sqlite_database(backup, target)
         assert target.read_bytes() == original
-        assert conn.execute("SELECT COUNT(*) FROM records").fetchone()[0] == 1
+        # Owning connection sees its own uncommitted insert; other readers do not.
+        assert conn.execute("SELECT COUNT(*) FROM records").fetchone()[0] == 2
+        with sqlite3.connect(target) as independent_reader:
+            assert independent_reader.execute("SELECT COUNT(*) FROM records").fetchone()[0] == 1
     finally:
         conn.close()
 
