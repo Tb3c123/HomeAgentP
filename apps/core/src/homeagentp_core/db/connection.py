@@ -157,7 +157,9 @@ def restore_sqlite_database(backup_path: Path, target_db_path: Path) -> Path:
     if target_db_path.is_symlink():
         raise BackupError("Restore target cannot be a symlink.")
     if any(Path(f"{target_db_path}{suffix}").exists() for suffix in ("", "-wal", "-shm")):
-        raise BackupError("Restore target or SQLite sidecars already exist; offline replacement required.")
+        raise BackupError(
+            "Restore target or SQLite sidecars already exist; offline replacement required."
+        )
 
     verify_sqlite_integrity(backup_path)
     target_db_path.parent.mkdir(parents=True, exist_ok=True)
