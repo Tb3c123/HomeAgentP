@@ -1,128 +1,162 @@
 # HomeAgentP — Product Vision
 
+> Document ID: HAP-PV-001  
 > Version: v0.1.0  
 > Phase: 1 — Step 1.1 (Product Vision)  
-> Status: APPROVED  
+> Status: **APPROVED**  
 > Approved by: Product Owner  
 > Approval date: 2026-11-18  
 > Repository: https://github.com/Tb3c123/HomeAgentP
 
-## 1. Product statement
+## 1. Product Overview
 
-**HomeAgentP — A Unified Home Intelligence & Orchestration Workspace**
+- **Product Name:** HomeAgentP
+- **Product Category:** Smart Home AI Orchestrator
+- **Primary Interface:** Antigravity CLI (`agy`), subject to technical and policy validation.
+- **Automation Model:** Level B — Controlled Automation / Human-in-the-Loop.
 
-HomeAgentP là hệ thống không gian làm việc hỗ trợ quản trị Home Lab, Home Network, NAS, Smart Home và dịch vụ tại gia, được định hướng vận hành trên nền tảng Google Antigravity CLI (`agy`). Sản phẩm tổ chức công việc bằng một Main Chat đóng vai trò điều phối logic và nhiều Sub-chats chuyên trách; kết quả quan trọng được quản lý trong bộ tài liệu dùng chung có phiên bản.
+HomeAgentP là hệ thống AI đa tác nhân hỗ trợ điều phối, giám sát và tự động hóa hoạt động quản lý nhà thông minh. Sản phẩm tổ chức một Main Chat (Director) và nhiều Sub-Chats (Workers) chuyên trách theo miền, ghi nhớ kinh nghiệm dài hạn, và tối ưu token trong khi duy trì quyền kiểm soát của chủ nhà.
 
-Hệ thống ưu tiên **AI-assisted, human-in-control**: AI đề xuất, phân tích, phân rã và tổng hợp; Product Owner phê duyệt các hành động nhạy cảm hoặc ảnh hưởng đến hạ tầng thật.
+## 2. Product Vision
 
-## 2. Problem statement
+Xây dựng một trợ lý AI quản lý nhà thông minh có khả năng phân công nhiệm vụ cho các agent chuyên trách, duy trì và tái sử dụng tri thức giữa các phiên, học từ phản hồi, cải thiện quy trình theo thời gian và tự động thực hiện **chỉ các hành động ít rủi ro đã được cho phép**. Hệ thống ưu tiên quyền kiểm soát của chủ nhà, an toàn, minh bạch, bảo vệ quyền riêng tư, hiệu quả token và tuân thủ chính sách nền tảng.
 
-Quản trị hệ sinh thái Home có nhiều miền nghiệp vụ và thông tin phân tán: mạng, NAS, máy chủ, IoT, bảo trì, trạng thái dịch vụ và lịch sử quyết định. Việc sử dụng nhiều phiên AI riêng lẻ dễ mất ngữ cảnh, khó truy vết trách nhiệm và có nguy cơ phát sinh hành động thiếu kiểm soát.
+## 3. Problem Statement
 
-HomeAgentP nhằm tạo một quy trình điều phối thống nhất, dễ kiểm toán và an toàn, thay vì cấp quyền tự trị không giới hạn cho AI.
+- Ngữ cảnh quản lý nhà phân tán giữa nhiều tác vụ và phiên làm việc; dễ mất lịch sử quyết định.
+- Một chat xử lý mọi miền công việc dễ tạo context lớn và tốn token.
+- Khó phân định quyền hạn và trách nhiệm của từng agent.
+- Người dùng phải lặp lại các hướng dẫn và kinh nghiệm đã cung cấp.
+- Thiếu kiểm soát thống nhất đối với việc tự động thực thi, quota và khả năng truy vết.
 
-## 3. Target user
+## 4. Target Users
 
-- **Primary user:** Product Owner, đồng thời là người quản trị hệ thống Home/Home Lab.
-- Mở rộng cho những người vận hành được ủy quyền chỉ khi có cơ chế phân quyền phù hợp; không cam kết tính năng đa người dùng trong MVP.
+- **Primary User:** Chủ nhà / Product Owner, người quản trị hệ thống.
+- **Secondary Users (potential):** Thành viên gia đình hoặc người được ủy quyền theo phạm vi cho phép.
 
-## 4. Product goals
+Chân dung người dùng, phân quyền và phạm vi MVP cụ thể chưa chốt ở Step 1.1.
 
-1. Tập trung tiếp nhận và theo dõi nhiệm vụ qua Main Chat.
-2. Phân chia công việc theo phạm vi nghiệp vụ tại các Sub-chats.
-3. Đồng bộ kết quả quan trọng bằng tài liệu/trạng thái chuẩn có phiên bản.
-4. Đảm bảo các thao tác rủi ro phải được người dùng phê duyệt.
-5. Đặt ToS, rate limit, bảo mật tài khoản và truy vết làm ràng buộc thiết kế.
-6. Cho phép mở rộng sau khi xác minh khả năng và điều khoản của CLI.
+## 5. Core Product Principles
 
-## 5. Logical architecture (non-implementation commitment)
+1. **Human Authority:** Chủ nhà có quyền phê duyệt, từ chối, tạm dừng và thu hồi quyền tự động hóa.
+2. **Multi-Agent Responsibility:** Director định tuyến và giám sát; Worker xử lý công việc trong miền được cấp.
+3. **Context Isolation:** Worker giữ ngữ cảnh cục bộ, hạn chế truyền dữ liệu không liên quan.
+4. **Persistent and Governed Memory:** Trí nhớ và phản hồi có khả năng kiểm tra, chỉnh sửa, xóa; việc học không được nâng quyền.
+5. **Token-Aware Execution:** Giảm context dư thừa, theo dõi quota và có phương án xử lý khi gần giới hạn.
+6. **Compliance First:** Chỉ dùng các chức năng, cơ chế truy cập và tự động hóa được chính sách nền tảng cho phép.
+7. **Auditability and Least Privilege:** Hành động quan trọng phải truy vết được; quyền tối thiểu theo nhiệm vụ.
+
+## 6. Conceptual Architecture (Non-implementation Commitment)
 
 ```text
 Product Owner
      |
-Main Chat — Orchestrator
+Main Chat — Director
      |
-     +-- Sub-chat A (specialized domain)
-     +-- Sub-chat B (specialized domain)
-     +-- Sub-chat N (specialized domain)
+     +-- Worker: IoT (illustrative)
+     +-- Worker: Maintenance (illustrative)
+     +-- Worker: Security/Energy (illustrative)
+     +-- Worker: Inventory (illustrative)
      |
-Shared Project Knowledge
-(Markdown docs, task records, decisions, state snapshots)
+Shared Capabilities (conceptual)
+Memory / Feedback / Policies / Quota / Audit
      |
-Controlled access to Home Infrastructure
+Authorized Home Infrastructure
 ```
 
-**Main Chat**: tiếp nhận yêu cầu, phân rã tác vụ, theo dõi, kiểm tra và tổng hợp đầu ra.
+**Director:** tiếp nhận yêu cầu, phân rã và định tuyến, theo dõi tiến độ, tổng hợp kết quả, điều tiết ngân sách token và kiểm soát chính sách.
 
-**Sub-chats**: mỗi phiên chịu trách nhiệm một lĩnh vực hoặc tác vụ trong phạm vi đã giao. Chi tiết các nhóm chưa được quyết định tại bước 1.1.
+**Workers:** xử lý miền nhiệm vụ độc lập, giữ context cục bộ, báo cáo kết quả và trạng thái theo cơ chế được cho phép.
 
-**Shared Project Knowledge**: nguồn chuẩn cho trạng thái nhiệm vụ, quyết định và thông tin đã xác minh. Không giả định các session tự chia sẻ bộ nhớ hoặc Main Chat có thể gọi các session khác bằng cơ chế chưa được xác nhận.
+**Shared Capabilities:** ghi nhớ dài hạn, học từ phản hồi, kiểm tra chính sách, giám sát quota, lưu vết quyết định.
 
-## 6. Communication and data principles
+Các Worker kể trên **chỉ minh họa**, không phải danh mục chính thức. Không giả định Antigravity hỗ trợ chia sẻ bộ nhớ hoặc điều khiển các phiên CLI tự động. Chi tiết đồng bộ liên phiên sẽ được quyết định trong bước thiết kế tiếp theo sau khi được phép.
 
-- Mọi nhiệm vụ có mã định danh, mục tiêu, đầu vào, trạng thái, đầu ra, thời điểm cập nhật và chủ thể phê duyệt khi cần.
-- Giao tiếp liên phiên được xem là **logic workflow**; phương thức trao đổi thực tế có thể là thủ công hoặc thông qua cơ chế chính thức được hỗ trợ.
-- Thay đổi quan trọng được lưu vào Shared Project Knowledge, không chỉ nằm trong lịch sử chat.
-- Main Chat phải kiểm tra nguồn, thời điểm cập nhật và mâu thuẫn dữ liệu trước khi tổng hợp.
-- Khi đồng bộ thất bại hoặc dữ liệu cũ, không được giả định tác vụ hoàn tất.
-- Không tự động hóa chéo session hoặc phát lệnh CLI hàng loạt khi chưa xác minh tính năng và quyền sử dụng.
+## 7. Controlled Automation Policy — Level B
 
-## 7. Non-negotiable principles
+| Action class | Rule |
+|---|---|
+| Đọc trạng thái, thống kê | Được phép trong phạm vi quyền đã cấp |
+| Phân tích, khuyến nghị, lập kế hoạch, nhắc lịch | Tự động |
+| Tác vụ ít rủi ro | Tự động **chỉ** trong chính sách và quyền đã duyệt |
+| Thao tác ảnh hưởng an toàn, điện, thiết bị có rủi ro | Cần phê duyệt rõ ràng |
+| Mua sắm, thanh toán, mở khóa cửa, vô hiệu hóa bảo vệ | Cần phê duyệt rõ ràng |
+| Tác vụ chưa phân loại được rủi ro | Mặc định không thực thi; yêu cầu xác nhận |
+| Tự nâng quyền, tự sửa quy tắc phê duyệt | Không được phép |
 
-| ID | Principle | Rule |
-|---|---|---|
-| P-01 | Compliance First | Chỉ sử dụng giao diện, luồng xác thực và các tính năng được nhà cung cấp cho phép theo điều khoản áp dụng. |
-| P-02 | Human-in-Control | Hành động nhạy cảm cần phê duyệt rõ ràng trước khi thực thi. |
-| P-03 | Single Source of Truth | Sự thật vận hành và quyết định quan trọng có nguồn chuẩn, có phiên bản. |
-| P-04 | Least Privilege | Cấp quyền tối thiểu theo phiên, nhiệm vụ, tài nguyên. |
-| P-05 | Observable & Recoverable | Có log, trạng thái, xử lý lỗi, điểm dừng và phương án phục hồi. |
-| P-06 | No Quota Circumvention | Không né quota bằng xoay tài khoản, proxy, endpoint không chính thức hay thủ thuật khác. |
+Chủ nhà có thể dừng hoặc thu hồi quyền tự động hóa. Các thao tác có tác động đến mạng, NAS, Home Lab, thiết bị IoT, dữ liệu hoặc hệ thống bảo vệ phải chịu chính sách phê duyệt tương ứng; không mặc định cấp quyền quản trị hay quyền shell toàn hệ thống.
 
-## 8. Security and approval boundaries
+## 8. Self-Learning Vision
 
-Các thao tác thay đổi cấu hình hệ thống, mạng, NAS, dữ liệu, dịch vụ đang chạy, thiết bị IoT hoặc thông tin xác thực phải có chính sách xác nhận và phạm vi quyền phù hợp. Chưa mặc định cấp quyền shell, quyền administrator hay quyền truy cập toàn mạng cho AI.
+Tham khảo và đánh giá khả năng tái sử dụng các nguyên lý từ **Hermes Agent** (https://github.com/NousResearch/hermes-agent):
 
-Tài liệu và lời nhắc gửi lên nền tảng AI phải được rà soát để tránh lộ mật khẩu, token, private key, thông tin định danh hoặc dữ liệu nhạy cảm của Home Lab. Log không được chứa bí mật chưa được che giấu.
+- Persistent memory.
+- Session / experience retrieval.
+- Feedback-driven improvement.
+- Reusable skills / workflows.
 
-## 9. MVP boundary — directional, not final feature selection
+Không mặc định nhúng toàn bộ mã nguồn Hermes Agent hoặc cho phép tự sửa đổi hành vi không kiểm soát. Kiến thức học được cần có thể kiểm tra, sửa hoặc xóa và không được làm thay đổi chính sách an toàn hay quyền hạn.
 
-**Trong định hướng MVP:** workspace dự án, khung Main/Sub-chat, giao thức giao việc và nhận kết quả, hồ sơ nhiệm vụ, tài liệu dùng chung, quy trình phê duyệt, và chính sách bảo mật/tuân thủ.
+## 9. Hard Constraints
 
-**Cần xác minh trước khi đưa vào phạm vi:** session synchronization tự động, headless invocation, MCP integration, scheduling, điều khiển tài nguyên thật, và giao tiếp agent-to-agent.
+- **HC-01 — ToS:** Tuân thủ Antigravity Terms và tính năng được hỗ trợ; không giả định quyền tự động hóa nhiều phiên.
+- **HC-02 — No Circumvention:** Không bypass quota, account rotation, proxy, reverse-engineering endpoint nội bộ hoặc lạm dụng dịch vụ.
+- **HC-03 — Token Control:** Kiểm soát token, context window và xử lý khi thiếu quota; không hứa mức tiết kiệm định lượng khi chưa đo.
+- **HC-04 — Privacy:** Bảo vệ thông tin gia đình, thông tin xác thực, dữ liệu camera/an ninh; không để lộ secrets trong prompt hoặc logs.
+- **HC-05 — Approval:** Hành động rủi ro cao phải có phê duyệt trước khi thực thi.
+- **HC-06 — No Privilege Escalation:** Agent không được tự nâng quyền hoặc thay đổi chính sách duyệt.
+- **HC-07 — Audit & Recovery:** Có khả năng truy vết các hành động quan trọng và xác định trạng thái khi tác vụ lỗi.
 
-**Không thuộc MVP:** AI toàn quyền tự trị, bypass quota, account rotation, reverse engineering API nội bộ, hoặc điều khiển hạ tầng không có giới hạn và phê duyệt.
+## 10. Vision-Level Success Criteria
 
-Danh mục MVP chi tiết sẽ được quyết định ở bước sau; tài liệu này không phê duyệt sẵn từng tính năng.
+HomeAgentP đi đúng tầm nhìn nếu có thể:
 
-## 10. ToS and capability validation
+1. Điều phối công việc qua các agent chuyên trách.
+2. Duy trì và tái sử dụng thông tin phù hợp giữa các phiên.
+3. Tự động xử lý các tác vụ ít rủi ro được cho phép.
+4. Yêu cầu phê duyệt đối với thao tác nhạy cảm.
+5. Theo dõi và hạn chế tiêu thụ tài nguyên AI.
+6. Hoạt động qua các giao diện tích hợp được phép, không vi phạm chính sách dịch vụ.
 
-Thiết kế không tự khẳng định rằng mọi kịch bản đa phiên hoặc tự động hóa qua `agy` đều được phép. Trước triển khai cần kiểm tra tài liệu **chính thức, đang có hiệu lực** của nhà cung cấp đối với đúng loại tài khoản, gói sử dụng, tính năng CLI, cơ chế session, API, rate limits và third-party automation.
+Các KPI định lượng sẽ được xác định ở bước sau.
 
-Quy tắc mặc định khi chưa có bằng chứng: **không triển khai cơ chế tự động hóa có nguy cơ vi phạm**; sử dụng bước chuyển giao thủ công hoặc chức năng được hỗ trợ rõ ràng.
+## 11. Out of Scope — Step 1.1
 
-Tham chiếu ban đầu (cần đối chiếu lại trước triển khai):
-- https://antigravity.google/terms
-- https://antigravity.google/docs/cli/reference/
+- Chốt danh mục Worker hoặc tính năng MVP.
+- Thiết kế giao thức giao tiếp, đồng bộ, vòng đời phiên.
+- Thiết kế cấu trúc memory, cơ sở dữ liệu, API, thuật toán quota.
+- Triển khai mã nguồn, tự động hóa thật hoặc cấu hình thiết bị.
+- Quyết định tích hợp Hermes Agent ở mức code.
+- Thiết kế UI, wireframe hoặc các edge cases chi tiết.
 
-## 11. Success criteria for Product Vision
+## 12. Open Decisions and Validation Gates
 
-- Mục tiêu, người dùng chính và giá trị sản phẩm được mô tả rõ.
-- Phân biệt Main Chat, Sub-chats và kho dữ liệu chuẩn.
-- Chốt mô hình AI-assisted với quyền phê duyệt của Product Owner.
-- ToS, least privilege, bảo mật và khả năng truy vết là ràng buộc cấp sản phẩm.
-- Phân biệt giữa kiến trúc mong muốn và khả năng CLI thực tế đã kiểm chứng.
-- Không tự động chuyển sang bước 1.2 khi chưa có chỉ đạo.
+- Persona và ưu tiên nghiệp vụ / MVP.
+- Danh sách Worker và cơ chế tương tác Director–Worker.
+- Cơ chế phê duyệt và chính sách phân loại rủi ro chi tiết.
+- Kỹ thuật memory, đồng bộ và tối ưu token.
+- Xác minh ToS, tài liệu CLI và quyền tích hợp chính thức trước triển khai.
+- Kiểm định tính tương thích Hermes Agent với thiết kế.
 
-## 12. Decision log
+Nếu một cơ chế tự động điều khiển CLI không được hỗ trợ hoặc không được phép, phải sử dụng quy trình chuyển giao có người tham gia hoặc phương thức chính thức được nhà cung cấp cho phép.
+
+## 13. Decision Log
 
 | Date | ID | Decision | Status |
 |---|---|---|---|
-| 2026-11-18 | DEC-001 | Phê duyệt Product Vision HomeAgentP ở Phase 1, Step 1.1 | Approved |
-| 2026-11-18 | DEC-002 | Chọn mô hình AI-assisted; người dùng phê duyệt hành động nhạy cảm | Approved |
-| 2026-11-18 | DEC-003 | Giữ nguyên Phase 1, Step 1.1 sau khi lưu tài liệu; chưa sang Step 1.2 | Approved |
+| 2026-11-18 | DEC-001 | Phê duyệt Product Vision HomeAgentP Phase 1, Step 1.1 | Approved |
+| 2026-11-18 | DEC-002 | Chọn Level B — Controlled Automation / Human-in-the-Loop | Approved |
+| 2026-11-18 | DEC-003 | Giữ nguyên Step 1.1 sau khi lưu và commit; chưa bắt đầu Step 1.2 | Approved |
 
-## 13. Current gate
+## 14. References
 
-**Phase 1 — Step 1.1: APPROVED and documented.**
+- Antigravity: https://antigravity.google/
+- Antigravity Terms: https://antigravity.google/terms
+- Hermes Agent: https://github.com/nousresearch/hermes-agent
+- HomeAgentP Repository: https://github.com/Tb3c123/HomeAgentP
 
-**Next step: NOT STARTED.** Không triển khai Phase 1 — Step 1.2 cho tới khi Product Owner yêu cầu.
+## 15. Approval Gate
+
+**Phase 1 — Step 1.1: APPROVED.**
+
+**Phase 1 — Step 1.2: NOT STARTED.** Chỉ bắt đầu khi Product Owner yêu cầu.
