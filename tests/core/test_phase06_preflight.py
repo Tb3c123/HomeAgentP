@@ -66,3 +66,18 @@ def test_preflight_missing_services_and_image_unknown() -> None:
     result = check_compose_document(doc)
     assert result["status"] == "UNKNOWN"
     assert copy.deepcopy(doc) == doc
+
+
+def test_preflight_rejects_arbitrary_ro_host_data_and_hidden_extra_services() -> None:
+    doc = _document()
+    core = doc["services"]["homeagentp-core"]  # type: ignore[index]
+    core["volumes"] = [  # type: ignore[index]
+        {"type": "bind", "source": "/etc", "target": "/config",
+         "read_only": True},
+    ]
+    doc["services"]["unreviewed-service"] = {"privileged": True}  # type: ignore[index]
+    result = check_compose_document(doc)
+    assert result["status"] == "FAIL"
+    failing = {x["check"] for x in result["findings"] if x["status"] == "FAIL"}
+    assert "homeagentp-core.mount.0" in failing
+    assert "compose.extra_service" in failing
