@@ -78,6 +78,17 @@ def _fsync_file_and_parent(file_path: Path) -> None:
             os.close(dir_fd)
 
 
+def _fsync_directory(path: Path) -> None:
+    """Sync published rename metadata (best-effort availability depends on filesystem)."""
+    if not hasattr(os, "O_DIRECTORY"):
+        raise BackupError("Directory fsync is not supported on this platform.")
+    fd = os.open(str(path), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def backup_sqlite_database(
     source_db_path: Path,
     target_backup_path: Path,
@@ -119,6 +130,7 @@ def backup_sqlite_database(
         verify_sqlite_integrity(tmp_backup_path)
         _fsync_file_and_parent(tmp_backup_path)
         os.replace(tmp_backup_path, target_backup_path)
+        _fsync_directory(target_backup_path.parent)
         return target_backup_path
     except Exception as exc:
         if dst_conn is not None:
@@ -134,17 +146,24 @@ def backup_sqlite_database(
 
 
 def restore_sqlite_database(backup_path: Path, target_db_path: Path) -> Path:
-    """Verify a backup file and atomically restore it to target_db_path."""
-    if not backup_path.exists():
-        raise FileNotFoundError(f"Backup file does not exist: {backup_path}")
+    """Verify and restore a backup to a NEW database file only.
+
+    Deliberately refuses in-place restore, including existing WAL/SHM sidecars.
+    Replacing a running or stopped production DB is a separate offline
+    operator procedure that requires explicit host-level authorization.
+    """
+    if not backup_path.is_file() or backup_path.is_symlink():
+        raise BackupError("Backup must be an existing regular, non-symlink file.")
+    if target_db_path.is_symlink():
+        raise BackupError("Restore target cannot be a symlink.")
+    if any(Path(f"{target_db_path}{suffix}").exists() for suffix in ("", "-wal", "-shm")):
+        raise BackupError("Restore target or SQLite sidecars already exist; offline replacement required.")
 
     verify_sqlite_integrity(backup_path)
-
     target_db_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_restore_path = target_db_path.parent / (
         f".{target_db_path.name}.{os.getpid()}.{secrets.token_hex(4)}.restore.tmp"
     )
-
     src_conn = sqlite3.connect(str(backup_path))
     dst_conn: sqlite3.Connection | None = None
     try:
@@ -157,10 +176,26 @@ def restore_sqlite_database(backup_path: Path, target_db_path: Path) -> Path:
         verify_sqlite_integrity(tmp_restore_path)
         _fsync_file_and_parent(tmp_restore_path)
 
-        # Remove stale WAL/SHM sidecars before atomic replacement
-        for suffix in ("-wal", "-shm"):
-            Path(f"{target_db_path}{suffix}").unlink(missing_ok=True)
-        os.replace(tmp_restore_path, target_db_path)
+        # Fail closed on races; O_EXCL prevents overwriting a previously created DB.
+        # Reserve target without following symlinks; never delete existing WAL/SHM.
+        reserved = False
+        try:
+            target_fd = os.open(
+                str(target_db_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+            )
+            os.close(target_fd)
+            reserved = True
+            if any(
+                Path(f"{target_db_path}{suffix}").exists() for suffix in ("-wal", "-shm")
+            ):
+                raise BackupError("Restore target SQLite sidecars appeared during restore.")
+            os.replace(tmp_restore_path, target_db_path)
+            reserved = False
+            _fsync_directory(target_db_path.parent)
+        except Exception:
+            if reserved:
+                target_db_path.unlink(missing_ok=True)
+            raise
         return target_db_path
     except Exception as exc:
         if dst_conn is not None:
