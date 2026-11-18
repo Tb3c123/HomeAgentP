@@ -54,6 +54,18 @@ Theo sơ đồ mount, luồng dự kiến của Radarr đi từ thư mục tải
 2. **Fire-and-Forget.** Sau khi qBittorrent hoặc ứng dụng *arr xác nhận nhận lệnh, ghi mã theo dõi và trạng thái bàn giao, trả kết quả cho Chat Main rồi kết thúc phiên. Sự cố mất phản hồi sau khi gửi cần đối chiếu mã theo dõi với hàng đợi trước khi gửi lại để tránh tải trùng. Phiên Antigravity không chờ tải hoàn tất.
 3. **Periodic Health Check.** Một job cục bộ chạy ngắn theo lịch hoặc trigger nhẹ, kiểm tra tiến độ qua nhiều mẫu, tốc độ, trạng thái tracker và seed/peer. Job chỉ cần qBittorrent WebUI API cho việc giám sát thường kỳ. Kết quả ghi vào báo cáo cục bộ để Chat Main đọc khi cần. Đề xuất bắt đầu ở chế độ chỉ báo cáo, sau đó duyệt riêng ngưỡng, thời gian chờ, số lần thử và quyền thực hiện re-announce hoặc đổi sang bản dự phòng đã qua Sub-First. [qBittorrent WebUI API](https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-(qBittorrent-5.0))
 
+### Thử nghiệm bố trí cùng HDD cho phim
+
+Product Owner đã duyệt giữ vị trí thư viện và thử vùng tải mới theo từng HDD. Phương án đích là vùng tải phim dưới `/mnt/disk1/Media/.downloads/radarr` và vùng tải tập dưới `/mnt/disk2/Media/.downloads/sonarr`. Mỗi ứng dụng nhập nhìn thấy vùng tải và thư viện qua cùng một mount cha trên HDD tương ứng. qBittorrent và ứng dụng nhập dùng cùng đường dẫn bên trong container cho vùng tải.
+
+Bài thử dùng thư mục tạm trên HDD 1, mạng Docker riêng và đúng image của ba dịch vụ hiện có. qBittorrent 5.3.0 nhận video tự tạo từ một peer nội bộ, báo tải hoàn tất và lưu đúng vùng thử trên HDD 1. Một lượt thử riêng xác nhận category `radarr-pilot` tự chọn đúng vùng tải khi bật Automatic Torrent Management và không truyền đường dẫn lưu riêng.
+
+Radarr 6.4.4.10685 nhập chính tệp đã tải bằng lệnh quét nhập ở chế độ `Copy`, với tùy chọn dùng hardlink. Tệp tải và tệp thư viện có cùng device `2049`, inode `3918317` và số link `2`. Jellyfin 12.4.0 quét thấy phim trong thư viện thử. Dữ liệu trả từ luồng phát HTTP trùng tệp đã tải và FFmpeg giải mã được cả hình lẫn tiếng. Đã dọn container, mạng và thư mục thử. Các dịch vụ đang dùng tiếp tục chạy với thời điểm khởi động trước bài thử.
+
+Kết quả xác nhận bố trí cùng mount hỗ trợ hardlink và Jellyfin đọc được tệp nhập. Bài thử chủ động gọi Radarr để nhập. Tự nhập từ hàng đợi qBittorrent, chính sách thư mục tải dở của cấu hình đang dùng và luồng Sonarr chờ kiểm chứng riêng. Bài thử không bao gồm tìm Vietsub hoặc Health Check.
+
+Phương án ưu tiên là áp dụng trước cho các lượt tải phim mới, giữ đường dẫn cũ cho torrent đang tải hoặc seed. Cần xác nhận tệp đang tải dở cũng nằm đúng HDD. Bố trí hiện tại đơn giản hơn nhưng nhập qua ổ cần sao chép và có thể giữ hai bản trong lúc seed. Dồn toàn bộ tải và thư viện vào một HDD đơn giản hóa mount nhưng cần chuyển thư viện và tập trung dung lượng, I/O vào một ổ. Hai HDD hiện đều còn nhiều chỗ trống, nên bố trí tách theo loại nội dung cân bằng tốt hơn giữa khả năng hardlink và công sức chuyển đổi.
+
 ## Quyết định của Chat Main
 
 Chat Main chọn nhóm theo đầu ra người dùng yêu cầu và chịu trách nhiệm tổng hợp kết quả cuối cùng.
