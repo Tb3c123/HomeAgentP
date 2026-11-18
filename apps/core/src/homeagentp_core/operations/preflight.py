@@ -48,7 +48,7 @@ def check_compose_document(document: object) -> dict[str, Any]:
             "Expected fixed non-root UID:GID.")
         add(f"{name}.readonly", "PASS" if service.get("read_only") is True else "FAIL",
             "Root filesystem must be read-only.")
-        add(f"{name}.privileged", "PASS" if service.get("privileged") in (None, False) and service.get("privileged") is not 1 else "FAIL",
+        add(f"{name}.privileged", "PASS" if (service.get("privileged") is None or service.get("privileged") is False) else "FAIL",
             "Privileged mode must be disabled.")
         add(f"{name}.network", "PASS" if service.get("network_mode") in (None, "bridge") else "FAIL",
             "Host networking must be disabled.")
