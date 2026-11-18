@@ -6,9 +6,9 @@
 - **Automation:** Level B — Controlled Automation / Human-in-the-Loop
 - **AI memory:** Long-term memory và feedback learning có kiểm soát, tham khảo Hermes Agent
 - **Constraints:** Antigravity CLI (`agy`) phải tuân thủ ToS, giới hạn quota và cơ chế tích hợp được phép
-- **Current phase:** Phase 1 — Product Discovery
-- **Latest approved step:** 1.2 — Target Users & Core Needs (v0.2.0)
-- **Current step:** 1.3 — Core Features & MVP Scope (**in progress; not approved**)
+- **Current phase:** Phase 2 — User Flows & Information Architecture
+- **Latest approved step:** Phase 1, Step 1.3 — Core Features & MVP Scope (v0.3.0)
+- **Current step:** Phase 2, Step 2.1 — User Flow tổng quan (**draft; pending review**)
 
 ## Approved documents
 
@@ -16,6 +16,7 @@
 |---|---|---|
 | 1.1 | [Product Vision](docs/01-product-vision.md) | Approved, v0.1.0 |
 | 1.2 | [Target Users & Core Needs](docs/02-target-users.md) | Approved, v0.2.0 |
+| 1.3 | [Core Features & MVP Scope](docs/03-mvp-scope.md) | Approved, v0.3.0 |
 
 See [CHANGELOG.md](CHANGELOG.md) for version history.
 
