@@ -31,6 +31,29 @@ Trưởng nhóm Dev nhận việc từ Chat Main. Các vai trò dưới đây ba
 
 Product Owner chọn thiết kế chi tiết Media & Jellyfin trước.
 
+## Media & Jellyfin — Yêu cầu và khảo sát trước thiết kế
+
+Khảo sát ngày 18/11/2026 qua SSH chỉ đọc. Product Owner đã duyệt kiến trúc Sub-First, Fire-and-Forget và Periodic Health Check. Bố trí lưu trữ hiện có cần cải thiện trước khi triển khai. Quyền thao tác và cấu hình chi tiết chờ duyệt riêng. Bài nghiệm thu MVP tiếp tục dùng dữ liệu mẫu.
+
+### Hạ tầng quan sát được
+
+| Thành phần | Kết quả khảo sát |
+| --- | --- |
+| HDD 1 | `/mnt/disk1`, ext4, 9,1 TiB. Thư mục phim được Radarr gắn tại `/movies` và Jellyfin nhìn thấy tại `/media/disk1/Movies`. |
+| HDD 2 | `/mnt/disk2`, ext4, 9,1 TiB. Thư mục `Downloads` dùng chung cho qBittorrent, Sonarr và Radarr tại `/downloads`. Thư mục `Media/TVShows` được Sonarr gắn tại `/tv` và Jellyfin nhìn thấy tại `/media/disk2/TVShows`. |
+| qBittorrent | Nhãn image ghi phiên bản 5.3.0. Đường dẫn tải mặc định là `/downloads/`. Cấu hình có khai báo `/downloads/incomplete/` cho tệp tạm, trạng thái bật chưa xác minh. Trong `categories.json`, `radarr` có đường dẫn lưu riêng để trống và chưa thấy category `sonarr` theo đúng tên này. |
+| Bazarr | Nhìn thấy cùng thư mục phim và tập với Radarr và Sonarr, lần lượt tại `/movies` và `/tv`. |
+| Compose | qBittorrent, Prowlarr, Sonarr, Radarr, Bazarr và Seerr thuộc `media-stack`. Jellyfin thuộc project `jellyfin` và có cả hai cây `Media` được gắn. |
+| Lịch nền | Dịch vụ `cron` đang hoạt động. Chưa xác minh job theo dõi torrent sẵn có hoặc kết nối WebUI API. |
+
+Theo sơ đồ mount, luồng dự kiến của Radarr đi từ thư mục tải trên HDD 2 sang thư mục phim trên HDD 1, nên không thể dùng hardlink qua hai filesystem. Sonarr có đường dẫn nguồn và đích trên HDD 2, nhưng đây là hai bind mount riêng trong container. Linux cũng không hỗ trợ hardlink qua hai mount khác nhau. Khảo sát xác minh cấu hình và đường dẫn, còn hành vi nhập thực tế cần được kiểm chứng bằng tệp mẫu. [Linux link(2)](https://man7.org/linux/man-pages/man2/link.2.html)
+
+### Kiến trúc nghiệp vụ đã duyệt
+
+1. **Sub-First.** Tìm phụ đề tiếng Việt trước. Ghi lại định danh phim hoặc tập, edition và thông tin release có sẵn như nguồn video, nhóm encode hoặc tên bản phát hành. Chỉ gửi lệnh tải khi có bản phim khớp với phụ đề đã chọn. Nếu chỉ trùng các thuộc tính chung như `WEB-DL` hoặc cùng nhóm encode, đánh dấu chưa đủ bằng chứng và chờ xác minh. Đề xuất kiểm tra lại đồng bộ phụ đề sau khi có tệp. Bazarr hiện có vai trò quản lý phụ đề cho thư viện Sonarr/Radarr, còn nguồn tìm phụ đề trước khi có video cần xác minh riêng. [Bazarr và thư viện Sonarr/Radarr](https://wiki.bazarr.media/Getting-Started/How-Bazarr-Connects-to-Sonarr-and-Radarr/)
+2. **Fire-and-Forget.** Sau khi qBittorrent hoặc ứng dụng *arr xác nhận nhận lệnh, ghi mã theo dõi và trạng thái bàn giao, trả kết quả cho Chat Main rồi kết thúc phiên. Sự cố mất phản hồi sau khi gửi cần đối chiếu mã theo dõi với hàng đợi trước khi gửi lại để tránh tải trùng. Phiên Antigravity không chờ tải hoàn tất.
+3. **Periodic Health Check.** Một job cục bộ chạy ngắn theo lịch hoặc trigger nhẹ, kiểm tra tiến độ qua nhiều mẫu, tốc độ, trạng thái tracker và seed/peer. Job chỉ cần qBittorrent WebUI API cho việc giám sát thường kỳ. Kết quả ghi vào báo cáo cục bộ để Chat Main đọc khi cần. Đề xuất bắt đầu ở chế độ chỉ báo cáo, sau đó duyệt riêng ngưỡng, thời gian chờ, số lần thử và quyền thực hiện re-announce hoặc đổi sang bản dự phòng đã qua Sub-First. [qBittorrent WebUI API](https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-(qBittorrent-5.0))
+
 ## Quyết định của Chat Main
 
 Chat Main chọn nhóm theo đầu ra người dùng yêu cầu và chịu trách nhiệm tổng hợp kết quả cuối cùng.
