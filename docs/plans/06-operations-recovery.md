@@ -1,6 +1,6 @@
 # Phase 06 — Operations, Backup, Recovery & Deployment Readiness
 
-**Status:** GATE 0 PLANNING ONLY — no Phase 06 runtime implementation or live NAS changes
+**Status:** GATE A/B/C ISOLATED IMPLEMENTATION — backup/restore hardening, offline preflight, regression tests and Docker staging added. GitHub CI evidence tracked in PR #7. Live NAS/HA/Telegram remain NOT_TESTED; no deployment.
 **Branch:** `feature/phase-06-operations-recovery`
 **Baseline:** Phase 05 [PR #5](https://github.com/Tb3c123/HomeAgentP/pull/5) merged into `main` at `311b8b330ecdb3f03bb67e9b6a700c83063e0885`
 **Architecture:** B+ — official Google Antigravity is human-operated; HomeAgentP Core/Web remains least-privilege.
