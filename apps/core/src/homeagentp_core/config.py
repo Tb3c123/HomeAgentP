@@ -147,9 +147,34 @@ class Settings(BaseSettings):
     seerr_url: str = ""
     seerr_api_key: str = ""
 
-    # Phase 05 integration flags (placeholders)
+    # Phase 05 — Read-only Home Assistant & Outbound-only Telegram configuration (opt-in)
+    ha_enabled: bool = False
+    ha_scheduler_enabled: bool = False
     home_assistant_url: str = ""
+    ha_token: str = ""
+    ha_allowed_hosts: list[str] = Field(
+        default_factory=lambda: ["127.0.0.1", "localhost", "::1"]
+    )
+    ha_allowed_entities: list[str] = Field(default_factory=list)
+    ha_http_timeout_seconds: float = Field(default=5.0, ge=0.5, le=30.0)
+    ha_collection_interval_seconds: int = Field(default=60, ge=15, le=3600)
+    ha_collection_timeout_seconds: float = Field(default=15.0, ge=1.0, le=120.0)
+    ha_max_response_bytes: int = Field(default=524_288, ge=4096, le=4_194_304)
+    ha_min_persist_interval_seconds: int = Field(default=30, ge=0, le=3600)
+    ha_history_retention_limit: int = Field(default=200, ge=5, le=2000)
+    ha_snapshot_stale_seconds: int = Field(default=300, ge=30, le=86400)
+
+    telegram_enabled: bool = False
     telegram_bot_token: str = ""
+    telegram_allowed_chat_ids: list[str] = Field(default_factory=list)
+    telegram_http_timeout_seconds: float = Field(default=5.0, ge=0.5, le=30.0)
+    notification_scheduler_enabled: bool = False
+    notification_poll_interval_seconds: int = Field(default=30, ge=5, le=3600)
+    notification_cycle_timeout_seconds: float = Field(default=15.0, ge=1.0, le=120.0)
+    notification_outbox_max_active: int = Field(default=100, ge=10, le=1000)
+    notification_history_retention_limit: int = Field(default=500, ge=20, le=5000)
+    notification_lease_seconds: int = Field(default=60, ge=5, le=600)
+    notification_max_attempts: int = Field(default=3, ge=1, le=10)
 
     @field_validator("secret_key")
     @classmethod
@@ -194,6 +219,13 @@ class Settings(BaseSettings):
                 "nas_container_mem_warn_percent must be less than "
                 "nas_container_mem_critical_percent."
             )
+
+        cleaned_chats = [c.strip() for c in self.telegram_allowed_chat_ids if c.strip()]
+        if len(cleaned_chats) > 1:
+            raise ValueError(
+                "Phase 05 MVP supports at most one configured Telegram destination in "
+                "HOMEAGENTP_TELEGRAM_ALLOWED_CHAT_IDS."
+            )
         return self
 
     def redacted_summary(self) -> dict[str, object]:
@@ -221,6 +253,7 @@ class Settings(BaseSettings):
             "bazarr_api_key": "[REDACTED]" if self.bazarr_api_key else "not_configured",
             "prowlarr_api_key": "[REDACTED]" if self.prowlarr_api_key else "not_configured",
             "seerr_api_key": "[REDACTED]" if self.seerr_api_key else "not_configured",
+            "ha_token": "[REDACTED]" if self.ha_token else "not_configured",
             "telegram_bot_token": "[REDACTED]" if self.telegram_bot_token else "not_configured",
             "architecture_mode": "B+ (Antigravity-first, Dashboard-light)",
             "script_execution_enabled": False,

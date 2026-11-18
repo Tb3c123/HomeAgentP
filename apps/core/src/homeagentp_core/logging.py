@@ -21,6 +21,8 @@ SENSITIVE_VALUE_PATTERNS = [
     re.compile(r"(Bearer\s+)([A-Za-z0-9._~+/=-]+)", re.IGNORECASE),
     re.compile(r"(homeagentp_session=)([^\s;\"']+)", re.IGNORECASE),
     re.compile(r"(SID=)([^\s;\"']+)", re.IGNORECASE),
+    re.compile(r"(https?://api\.telegram\.org/bot)([0-9]+:[A-Za-z0-9_-]+)", re.IGNORECASE),
+    re.compile(r"\b(bot)([0-9]{5,}:[A-Za-z0-9_-]{20,})\b"),
 ]
 
 

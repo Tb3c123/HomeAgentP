@@ -20,7 +20,7 @@ def test_health_endpoint_is_public(client: TestClient) -> None:
     data = resp.json()
     assert data["status"] == "ok"
     assert data["service"] == "homeagentp-core"
-    assert data["schema_version"] == "004_workspace_artifacts"
+    assert data["schema_version"] == "006_phase05_hardening"
 
 
 def test_private_endpoints_require_authentication(client: TestClient) -> None:

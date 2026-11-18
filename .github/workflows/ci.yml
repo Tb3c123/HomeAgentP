@@ -116,7 +116,7 @@ jobs:
           test "$(docker compose -f deploy/docker-compose.dev.yml exec -T homeagentp-core id -u | tr -d '\r')" = "10001"
           test "$(docker compose -f deploy/docker-compose.dev.yml exec -T homeagentp-web id -u | tr -d '\r')" = "101"
           curl --fail --silent --show-error http://127.0.0.1:18310/api/v1/health \
-            | python3 -c 'import json,sys; x=json.load(sys.stdin); assert x["status"]=="ok" and x["schema_version"]=="004_workspace_artifacts", x'
+            | python3 -c 'import json,sys; x=json.load(sys.stdin); assert x["status"]=="ok" and x["schema_version"]=="006_phase05_hardening", x'
           code=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:18310/api/v1/media/overview)
           test "$code" = 401
           docker compose -f deploy/docker-compose.dev.yml exec -T homeagentp-core python3 -c \
@@ -195,6 +195,26 @@ jobs:
           }, csrf=csrf)
           assert prov["verification_source"] == "manual_unverified"
           print("Phase 04 Workspace API staging smoke test passed.")
+
+          ha_ov = req("GET", "/api/v1/home-assistant/overview")
+          assert ha_ov["enabled"] is False and ha_ov["status"] == "unavailable", ha_ov
+
+          prefs = req("GET", "/api/v1/notifications/preferences")
+          assert prefs["telegram_enabled"] is False and prefs["telegram_configured"] is False, prefs
+
+          deliv = req("GET", "/api/v1/notifications/deliveries?limit=10&offset=0")
+          assert deliv == [], deliv
+
+          upd = req("PUT", "/api/v1/notifications/preferences", {
+              "telegram_enabled": False,
+              "min_severity": "warning",
+              "notify_on_resolve": True,
+              "cooldown_seconds": 600,
+              "rate_limit_count": 10,
+              "rate_limit_window_seconds": 300,
+          }, csrf=csrf)
+          assert upd["cooldown_seconds"] == 600 and upd["telegram_configured"] is False, upd
+          print("Phase 05 HA & Notifications disabled-mode staging smoke test passed.")
           PY
       - name: Show staging diagnostics on failure
         if: failure()
