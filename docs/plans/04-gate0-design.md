@@ -1,8 +1,8 @@
 # Phase 04 — Gate 0 Design: Gap Analysis, Schema/API Proposal & Test Matrix
 
 **Branch:** `feature/phase-04-workspace-artifacts` (based on `main` at `6f13fee7`)  
-**Draft PR:** [#4 — Phase 04 Workspace, Task Briefs, Artifacts & Git Handoff](https://github.com/Tb3c123/HomeAgentP/pull/4)  
-**Status:** `GATE A COMPLETE (P04-F02 + P04-F03) — READY FOR GATE B (P04-F04 + P04-F05)`
+**PR (MERGED):** [#4 — Phase 04 Workspace, Task Briefs, Artifacts & Git Handoff](https://github.com/Tb3c123/HomeAgentP/pull/4); merge commit `28c11aab1a65c24db22946d12663cbdae0b602c0`  
+**Status:** `GATE 0, GATE A AND GATE B COMPLETE — MERGED INTO main`; last PR-head [Core/Web/Docker CI PASS](https://github.com/Tb3c123/HomeAgentP/actions/runs/44094110523). Live NAS `NOT_TESTED`.
 
 ---
 
@@ -143,4 +143,4 @@ All changes are strictly additive; existing `projects`, `tasks`, `task_attempts`
 - **Gate A (`P04-F02` Task Briefs, `P04-F03` Artifacts/Knowledge)**: Implemented and hardened (`7963fee`), including full `rendered_text` secret scanning, per-item & serialized JSON bounds, and SQLite-level `json_each` tag filtering with bounded pagination (`limit`/`offset`).
 - **Gate B (`P04-F04` Git Provenance)**: Implemented (`1eb8c93`) with HTTPS `github.com` URL validation, entity referential integrity, `manual_unverified` enforcement, owner-only CSRF-protected mutations, and audit logging.
 - **Gate B (`P04-F05` Workspace Frontend)**: Implemented (`1a02ede`) with `TaskBriefPanel`, `ArtifactsKnowledgePanel`, `GitProvenancePanel`, `WorkspaceSection`, `useWorkspaceData`, `workspaceClient`, and Vitest coverage.
-- **Verification**: Backend (`ruff`, `mypy`, `pytest` 58 passed) and Frontend (`tsc --noEmit`, `vitest` 5 files / 13 passed, `vite build`) verified; live NAS operations remain `NOT_TESTED`.
+- **Final verification (supersedes earlier Gate B snapshot):** PR #4 records backend `ruff`, `mypy`, `pytest` **59 passed** and frontend TypeScript, Vitest **17 passed**, Vite build; the [final CI run](https://github.com/Tb3c123/HomeAgentP/actions/runs/44094110523) confirms successful Core, Web, and isolated Docker staging jobs. Live NAS/production remain `NOT_TESTED` / `NOT_DEPLOYED`.
