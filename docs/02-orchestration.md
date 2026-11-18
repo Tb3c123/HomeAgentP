@@ -66,6 +66,20 @@ Kết quả xác nhận bố trí cùng mount hỗ trợ hardlink và Jellyfin �
 
 Phương án ưu tiên là áp dụng trước cho các lượt tải phim mới, giữ đường dẫn cũ cho torrent đang tải hoặc seed. Cần xác nhận tệp đang tải dở cũng nằm đúng HDD. Bố trí hiện tại đơn giản hơn nhưng nhập qua ổ cần sao chép và có thể giữ hai bản trong lúc seed. Dồn toàn bộ tải và thư viện vào một HDD đơn giản hóa mount nhưng cần chuyển thư viện và tập trung dung lượng, I/O vào một ổ. Hai HDD hiện đều còn nhiều chỗ trống, nên bố trí tách theo loại nội dung cân bằng tốt hơn giữa khả năng hardlink và công sức chuyển đổi.
 
+### Tải phim mới trên NAS đang dùng
+
+Đã áp dụng bố trí HDD 1 cho Radarr. Category `radarr` trỏ đến `/data/disk1/.downloads/radarr`, tương ứng `/mnt/disk1/Media/.downloads/radarr` trên NAS. qBittorrent đọc đường dẫn category cả khi Automatic Torrent Management tắt. Tùy chọn thư mục tải dở riêng đang tắt, nên luồng này dùng vùng tải HDD 1 từ đầu. Các category TV và mount `/downloads` trên HDD 2 vẫn giữ cấu hình hiện có.
+
+Radarr dùng một mount cha `/data/disk1` để truy cập vùng tải và `/data/disk1/Movies`. Đã cập nhật đường dẫn logic của 52 mục phim, xác minh vẫn có 50 mục có tệp và giữ nguyên vị trí tệp trên NAS. Seerr dùng root mới. Bazarr có thêm alias cho đường dẫn mới của Radarr. Jellyfin tiếp tục đọc thư viện phim ở đường dẫn hiện có. Bản sao lưu Compose, cơ sở dữ liệu Radarr và các giá trị cấu hình trước khi đổi nằm trong thư mục sao lưu được bảo vệ trên NAS.
+
+Bài kiểm tra trên dịch vụ đang dùng đưa một video tự tạo từ peer nội bộ vào Radarr. Radarr giao đúng category cho qBittorrent, qBittorrent lưu đúng HDD 1, rồi Radarr tự nhập từ hàng đợi. Tệp nguồn và tệp thư viện của bài thử có cùng device `2049`, inode `3918269` và số link `2`. Đã xóa riêng mục, torrent và dữ liệu mẫu sau khi kiểm tra.
+
+#### Tải lại và giữ đúng đường dẫn
+
+- Định danh bản tải theo infohash, category và `content_path` mà qBittorrent báo. Khi còn bản ghi, đối chiếu infohash trước khi gửi lại. Bài thử gửi trùng giữ đúng một bản ghi và cùng `content_path`.
+- Khi đã gỡ bản ghi nhưng giữ tệp nguồn, thêm lại cùng torrent vào category `radarr` với bố trí tệp như cũ để qBittorrent kiểm tra lại dữ liệu. Bài thử xác nhận qBittorrent dùng lại đúng đường dẫn và inode, với dữ liệu nguồn còn nguyên.
+- Nếu nguồn bị mất hoặc hỏng, hoặc bản thay thế có infohash khác, cần đối chiếu tệp thư viện trước khi xử lý. Hai tên file hardlink dùng chung inode, nên ghi đè dữ liệu tại nguồn có thể đổi dữ liệu Jellyfin đang đọc. Trường hợp này chờ quy tắc phục hồi riêng của Media & Jellyfin.
+
 ## Quyết định của Chat Main
 
 Chat Main chọn nhóm theo đầu ra người dùng yêu cầu và chịu trách nhiệm tổng hợp kết quả cuối cùng.
